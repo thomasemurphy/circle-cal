@@ -170,6 +170,10 @@
             if (angle > 90 || angle < -90) {
                 rotation += 180;
             }
+            // Flip May, Jun (months 4, 5) and Oct, Nov, Dec (months 9, 10, 11)
+            if ((month >= 4 && month <= 5) || (month >= 9 && month <= 11)) {
+                rotation += 180;
+            }
             text.setAttribute('transform', `rotate(${rotation}, ${pos.x}, ${pos.y})`);
 
             text.textContent = MONTHS[month].substring(0, 3);
@@ -216,14 +220,28 @@
         const group = document.createElementNS(SVG_NS, 'g');
         group.setAttribute('class', 'clock-hand-group');
 
-        // Hand line - starts from edge of center area to not overlap text
-        const startPos = polarToCartesian(angle, 50);
-        const tipPos = polarToCartesian(angle, OUTER_RADIUS - 10);
-        const hand = document.createElementNS(SVG_NS, 'line');
-        hand.setAttribute('x1', startPos.x);
-        hand.setAttribute('y1', startPos.y);
-        hand.setAttribute('x2', tipPos.x);
-        hand.setAttribute('y2', tipPos.y);
+        // Clock hand as a tapered polygon (arrow shape)
+        const tipPos = polarToCartesian(angle, OUTER_RADIUS - 5);
+        const basePos = polarToCartesian(angle, 50);
+
+        // Calculate perpendicular offset for the base width
+        const perpAngle = angle + 90;
+        const baseWidth = 4;
+        const tipWidth = 1;
+
+        const baseLeft = polarToCartesian(perpAngle, baseWidth);
+        const baseRight = polarToCartesian(perpAngle, -baseWidth);
+        const tipLeft = polarToCartesian(perpAngle, tipWidth);
+        const tipRight = polarToCartesian(perpAngle, -tipWidth);
+
+        const hand = document.createElementNS(SVG_NS, 'polygon');
+        hand.setAttribute('points', `
+            ${basePos.x + baseLeft.x},${basePos.y + baseLeft.y}
+            ${tipPos.x + tipLeft.x},${tipPos.y + tipLeft.y}
+            ${tipPos.x},${tipPos.y}
+            ${tipPos.x + tipRight.x},${tipPos.y + tipRight.y}
+            ${basePos.x + baseRight.x},${basePos.y + baseRight.y}
+        `);
         hand.setAttribute('class', 'clock-hand');
 
         group.appendChild(hand);
@@ -237,6 +255,7 @@
         group.setAttribute('id', 'annotation-markers');
 
         const totalDays = getDaysInYear(year);
+        const LABEL_RADIUS = OUTER_RADIUS + 45;
 
         for (const [dateKey, annList] of Object.entries(annotations)) {
             if (!annList || annList.length === 0) continue;
@@ -249,15 +268,62 @@
             dayOfYear += day;
 
             const angle = dateToAngle(dayOfYear - 0.5, totalDays);
-            const pos = polarToCartesian(angle, (INNER_RADIUS + OUTER_RADIUS) / 2);
+            const innerPos = polarToCartesian(angle, INNER_RADIUS);
+            const beforeNumPos = polarToCartesian(angle, (INNER_RADIUS + OUTER_RADIUS) / 2 - 8);
+            const afterNumPos = polarToCartesian(angle, (INNER_RADIUS + OUTER_RADIUS) / 2 + 8);
+            const outerPos = polarToCartesian(angle, LABEL_RADIUS);
 
-            const marker = document.createElementNS(SVG_NS, 'circle');
-            marker.setAttribute('cx', pos.x);
-            marker.setAttribute('cy', pos.y);
-            marker.setAttribute('r', 4);
-            marker.setAttribute('class', 'annotation-marker');
+            // Line segment before the number
+            const line1 = document.createElementNS(SVG_NS, 'line');
+            line1.setAttribute('x1', innerPos.x);
+            line1.setAttribute('y1', innerPos.y);
+            line1.setAttribute('x2', beforeNumPos.x);
+            line1.setAttribute('y2', beforeNumPos.y);
+            line1.setAttribute('class', 'annotation-line');
+            group.appendChild(line1);
 
-            group.appendChild(marker);
+            // Line segment after the number
+            const line2 = document.createElementNS(SVG_NS, 'line');
+            line2.setAttribute('x1', afterNumPos.x);
+            line2.setAttribute('y1', afterNumPos.y);
+            line2.setAttribute('x2', outerPos.x);
+            line2.setAttribute('y2', outerPos.y);
+            line2.setAttribute('class', 'annotation-line');
+            group.appendChild(line2);
+
+            // Format date string (e.g., "Jan 6")
+            const monthAbbr = MONTHS[month - 1].substring(0, 3);
+            const dateLabel = `${monthAbbr} ${day}`;
+
+            // Create text for each annotation
+            annList.forEach((annotation, index) => {
+                const textRadius = LABEL_RADIUS + (index * 12);
+                const textPos = polarToCartesian(angle, textRadius);
+
+                const text = document.createElementNS(SVG_NS, 'text');
+                text.setAttribute('x', textPos.x);
+                text.setAttribute('y', textPos.y);
+                text.setAttribute('class', 'annotation-text');
+                text.setAttribute('dominant-baseline', 'middle');
+
+                // Determine text anchor based on position (left/right side of circle)
+                if (angle > -90 && angle < 90) {
+                    text.setAttribute('text-anchor', 'start');
+                    text.setAttribute('x', textPos.x + 4);
+                } else {
+                    text.setAttribute('text-anchor', 'end');
+                    text.setAttribute('x', textPos.x - 4);
+                }
+
+                // Include date only on first annotation for this day
+                if (index === 0) {
+                    text.textContent = `${dateLabel}: ${annotation}`;
+                } else {
+                    text.textContent = annotation;
+                }
+
+                group.appendChild(text);
+            });
         }
 
         return group;
@@ -474,7 +540,7 @@
     function zoomToPoint(x, y) {
         isZoomed = true;
         zoomCenter = { x, y };
-        const size = 500 / ZOOM_LEVEL;
+        const size = 700 / ZOOM_LEVEL;
         const viewBoxX = x - size / 2;
         const viewBoxY = y - size / 2;
         svg.setAttribute('viewBox', `${viewBoxX} ${viewBoxY} ${size} ${size}`);
@@ -483,7 +549,7 @@
 
     function zoomOut() {
         isZoomed = false;
-        svg.setAttribute('viewBox', '-250 -250 500 500');
+        svg.setAttribute('viewBox', '-350 -350 700 700');
         svg.classList.remove('zoomed');
     }
 

@@ -64,9 +64,8 @@ body {
 
 /* Clock hand */
 .clock-hand {
-    stroke: #e53935;
-    stroke-width: 1.5;
-    stroke-linecap: round;
+    fill: #e53935;
+    stroke: none;
 }
 
 /* Date/time text in center */
@@ -96,10 +95,15 @@ body {
 }
 
 /* Annotation markers */
-.annotation-marker {
-    fill: #1976d2;
-    stroke: #fff;
-    stroke-width: 1;
+.annotation-line {
+    stroke: #bbb;
+    stroke-width: 0.3;
+}
+
+.annotation-text {
+    font-size: 7px;
+    fill: #333;
+    font-weight: 400;
 }
 
 /* Tooltip */
