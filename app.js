@@ -342,7 +342,7 @@
 
         // Clock hand as a tapered polygon (arrow shape)
         const tipPos = polarToCartesian(angle, OUTER_RADIUS - 5);
-        const basePos = polarToCartesian(angle, 50);
+        const basePos = polarToCartesian(angle, 20);
 
         // Calculate perpendicular offset for the base width
         const perpAngle = angle + 90;
@@ -454,8 +454,8 @@
 
         const now = new Date();
         const dateStr = now.toLocaleDateString('en-US', {
-            weekday: 'short',
-            month: 'short',
+            weekday: 'long',
+            month: 'long',
             day: 'numeric'
         });
         const timeStr = now.toLocaleTimeString('en-US', {
@@ -467,7 +467,7 @@
         // Date text (above center)
         const dateText = document.createElementNS(SVG_NS, 'text');
         dateText.setAttribute('x', 0);
-        dateText.setAttribute('y', -12);
+        dateText.setAttribute('y', -8);
         dateText.setAttribute('class', 'center-date');
         dateText.setAttribute('text-anchor', 'middle');
         dateText.setAttribute('dominant-baseline', 'middle');
@@ -476,7 +476,7 @@
         // Time text (below center)
         const timeText = document.createElementNS(SVG_NS, 'text');
         timeText.setAttribute('x', 0);
-        timeText.setAttribute('y', 12);
+        timeText.setAttribute('y', 10);
         timeText.setAttribute('class', 'center-time');
         timeText.setAttribute('text-anchor', 'middle');
         timeText.setAttribute('dominant-baseline', 'middle');
