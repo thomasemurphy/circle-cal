@@ -3,6 +3,7 @@
     const OUTER_RADIUS = 200;
     const INNER_RADIUS = 140;
     const CENTER_RADIUS = 100;
+    const API_URL = window.CONFIG?.API_URL || '';
 
     const MONTHS = [
         'January', 'February', 'March', 'April', 'May', 'June',
@@ -13,6 +14,8 @@
 
     let annotations = {};
     let selectedDate = null;
+    let currentUser = null;
+    let events = []; // Events from API
 
     // Zoom state
     let isZoomed = false;
@@ -30,6 +33,123 @@
     const modalDate = document.getElementById('modal-date');
     const existingAnnotations = document.getElementById('existing-annotations');
     const annotationInput = document.getElementById('annotation-input');
+
+    // Auth elements
+    const loginBtn = document.getElementById('login-btn');
+    const logoutBtn = document.getElementById('logout-btn');
+    const userInfo = document.getElementById('user-info');
+    const userAvatar = document.getElementById('user-avatar');
+    const userName = document.getElementById('user-name');
+
+    // API helper
+    async function api(endpoint, options = {}) {
+        const response = await fetch(`${API_URL}${endpoint}`, {
+            ...options,
+            credentials: 'include',
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers,
+            },
+        });
+        if (!response.ok && response.status !== 204) {
+            throw new Error(`API error: ${response.status}`);
+        }
+        if (response.status === 204) return null;
+        return response.json();
+    }
+
+    // Auth functions
+    async function checkAuth() {
+        try {
+            const user = await api('/auth/me');
+            if (user) {
+                currentUser = user;
+                updateAuthUI();
+                await loadEventsFromAPI();
+            } else {
+                showLoginButton();
+            }
+        } catch (e) {
+            showLoginButton();
+        }
+    }
+
+    function updateAuthUI() {
+        if (currentUser) {
+            loginBtn.style.display = 'none';
+            userInfo.style.display = 'flex';
+            if (currentUser.picture_url) {
+                userAvatar.src = currentUser.picture_url;
+            }
+            userName.textContent = currentUser.name || currentUser.email;
+        } else {
+            showLoginButton();
+        }
+    }
+
+    function showLoginButton() {
+        loginBtn.style.display = 'block';
+        userInfo.style.display = 'none';
+    }
+
+    function handleLogin() {
+        window.location.href = `${API_URL}/auth/google`;
+    }
+
+    async function handleLogout() {
+        try {
+            await api('/auth/logout', { method: 'POST' });
+        } catch (e) {
+            // Ignore errors
+        }
+        currentUser = null;
+        events = [];
+        annotations = {};
+        loadFromLocalStorage();
+        updateAuthUI();
+        updateAnnotationMarkers();
+    }
+
+    // API event functions
+    async function loadEventsFromAPI() {
+        if (!currentUser) return;
+        try {
+            events = await api('/api/events');
+            // Convert events to annotations format
+            annotations = {};
+            events.forEach(event => {
+                const key = `${event.month}-${event.day}`;
+                if (!annotations[key]) annotations[key] = [];
+                annotations[key].push({ id: event.id, title: event.title });
+            });
+            updateAnnotationMarkers();
+        } catch (e) {
+            console.error('Failed to load events:', e);
+        }
+    }
+
+    async function createEventAPI(month, day, title) {
+        if (!currentUser) return null;
+        try {
+            const event = await api('/api/events', {
+                method: 'POST',
+                body: JSON.stringify({ month, day, title }),
+            });
+            return event;
+        } catch (e) {
+            console.error('Failed to create event:', e);
+            return null;
+        }
+    }
+
+    async function deleteEventAPI(eventId) {
+        if (!currentUser) return;
+        try {
+            await api(`/api/events/${eventId}`, { method: 'DELETE' });
+        } catch (e) {
+            console.error('Failed to delete event:', e);
+        }
+    }
 
     function isLeapYear(year) {
         return (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
@@ -226,20 +346,15 @@
 
         // Calculate perpendicular offset for the base width
         const perpAngle = angle + 90;
-        const baseWidth = 4;
-        const tipWidth = 1;
+        const baseWidth = 2;
 
         const baseLeft = polarToCartesian(perpAngle, baseWidth);
         const baseRight = polarToCartesian(perpAngle, -baseWidth);
-        const tipLeft = polarToCartesian(perpAngle, tipWidth);
-        const tipRight = polarToCartesian(perpAngle, -tipWidth);
 
         const hand = document.createElementNS(SVG_NS, 'polygon');
         hand.setAttribute('points', `
             ${basePos.x + baseLeft.x},${basePos.y + baseLeft.y}
-            ${tipPos.x + tipLeft.x},${tipPos.y + tipLeft.y}
             ${tipPos.x},${tipPos.y}
-            ${tipPos.x + tipRight.x},${tipPos.y + tipRight.y}
             ${basePos.x + baseRight.x},${basePos.y + baseRight.y}
         `);
         hand.setAttribute('class', 'clock-hand');
@@ -315,11 +430,14 @@
                     text.setAttribute('x', textPos.x - 4);
                 }
 
+                // Get title (handle both old string format and new object format)
+                const title = typeof annotation === 'string' ? annotation : annotation.title;
+
                 // Include date only on first annotation for this day
                 if (index === 0) {
-                    text.textContent = `${dateLabel}: ${annotation}`;
+                    text.textContent = `${dateLabel}: ${title}`;
                 } else {
-                    text.textContent = annotation;
+                    text.textContent = title;
                 }
 
                 group.appendChild(text);
@@ -400,7 +518,8 @@
 
         let text = formatDate(month, day);
         if (annotations[dateKey] && annotations[dateKey].length > 0) {
-            text += ': ' + annotations[dateKey].join(', ');
+            const titles = annotations[dateKey].map(a => typeof a === 'string' ? a : a.title);
+            text += ': ' + titles.join(', ');
         }
 
         tooltip.textContent = text;
@@ -426,43 +545,27 @@
         const dateKey = getDateKey(month, day);
         const existing = annotations[dateKey] || [];
 
-        if (existing.length > 0) {
-            existingAnnotations.innerHTML = '<p><strong>Existing:</strong></p><ul>' +
-                existing.map((a, i) => `<li>${a} <button class="delete-btn" data-index="${i}">&times;</button></li>`).join('') +
-                '</ul>';
-            existingAnnotations.querySelectorAll('.delete-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    const index = parseInt(e.target.getAttribute('data-index'));
-                    deleteAnnotation(dateKey, index);
-                });
-            });
-        } else {
-            existingAnnotations.innerHTML = '';
-        }
+        renderExistingAnnotations(dateKey, existing);
 
         annotationInput.value = '';
         modal.style.display = 'flex';
         annotationInput.focus();
     }
 
-    function deleteAnnotation(dateKey, index) {
-        annotations[dateKey].splice(index, 1);
-        if (annotations[dateKey].length === 0) {
-            delete annotations[dateKey];
-        }
-        saveAnnotations();
-        updateAnnotationMarkers();
-
-        // Update modal display
-        const existing = annotations[dateKey] || [];
+    function renderExistingAnnotations(dateKey, existing) {
         if (existing.length > 0) {
             existingAnnotations.innerHTML = '<p><strong>Existing:</strong></p><ul>' +
-                existing.map((a, i) => `<li>${a} <button class="delete-btn" data-index="${i}">&times;</button></li>`).join('') +
+                existing.map((a, i) => {
+                    const title = typeof a === 'string' ? a : a.title;
+                    const eventId = typeof a === 'object' ? a.id : null;
+                    return `<li>${title} <button class="delete-btn" data-index="${i}" data-event-id="${eventId || ''}">&times;</button></li>`;
+                }).join('') +
                 '</ul>';
             existingAnnotations.querySelectorAll('.delete-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
-                    const idx = parseInt(e.target.getAttribute('data-index'));
-                    deleteAnnotation(dateKey, idx);
+                    const index = parseInt(e.target.getAttribute('data-index'));
+                    const eventId = e.target.getAttribute('data-event-id');
+                    deleteAnnotation(dateKey, index, eventId);
                 });
             });
         } else {
@@ -470,7 +573,28 @@
         }
     }
 
-    function saveAnnotation() {
+    async function deleteAnnotation(dateKey, index, eventId) {
+        // Delete from API if logged in and has event ID
+        if (currentUser && eventId) {
+            await deleteEventAPI(eventId);
+        }
+
+        annotations[dateKey].splice(index, 1);
+        if (annotations[dateKey].length === 0) {
+            delete annotations[dateKey];
+        }
+
+        if (!currentUser) {
+            saveAnnotationsLocal();
+        }
+        updateAnnotationMarkers();
+
+        // Update modal display
+        const existing = annotations[dateKey] || [];
+        renderExistingAnnotations(dateKey, existing);
+    }
+
+    async function saveAnnotation() {
         if (!selectedDate) return;
 
         const text = annotationInput.value.trim();
@@ -483,9 +607,19 @@
         if (!annotations[dateKey]) {
             annotations[dateKey] = [];
         }
-        annotations[dateKey].push(text);
 
-        saveAnnotations();
+        if (currentUser) {
+            // Save to API
+            const event = await createEventAPI(selectedDate.month + 1, selectedDate.day, text);
+            if (event) {
+                annotations[dateKey].push({ id: event.id, title: event.title });
+            }
+        } else {
+            // Save locally
+            annotations[dateKey].push(text);
+            saveAnnotationsLocal();
+        }
+
         updateAnnotationMarkers();
         closeModal();
     }
@@ -504,26 +638,9 @@
         svg.appendChild(createAnnotationMarkers(new Date().getFullYear()));
     }
 
-    async function loadAnnotations() {
-        try {
-            const response = await fetch('annotations.json');
-            if (response.ok) {
-                annotations = await response.json();
-            }
-        } catch (e) {
-            // File doesn't exist yet or fetch failed, use empty annotations
-            annotations = {};
-        }
-    }
-
-    function saveAnnotations() {
-        // In a real server environment, this would POST to a backend
-        // For local file, we'll use localStorage as fallback
+    function saveAnnotationsLocal() {
+        // Save to localStorage for non-authenticated users
         localStorage.setItem('circleCalAnnotations', JSON.stringify(annotations));
-
-        // Also create downloadable JSON
-        console.log('Annotations saved. To persist, save this JSON:');
-        console.log(JSON.stringify(annotations, null, 2));
     }
 
     function loadFromLocalStorage() {
@@ -611,9 +728,8 @@
     async function init() {
         const year = new Date().getFullYear();
 
-        // Try loading from JSON file first, then localStorage
-        await loadAnnotations();
-        loadFromLocalStorage(); // This will override with localStorage if present
+        // Load local annotations first (as fallback)
+        loadFromLocalStorage();
 
         // Build the calendar
         svg.appendChild(createDaySegments(year));
@@ -622,6 +738,13 @@
         svg.appendChild(createClockHand(year));
         svg.appendChild(createAnnotationMarkers(year));
         svg.appendChild(createCenterText(year));
+
+        // Auth event listeners
+        if (loginBtn) loginBtn.addEventListener('click', handleLogin);
+        if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
+
+        // Check if user is authenticated (will load events from API if so)
+        await checkAuth();
 
         // Modal event listeners
         document.getElementById('save-btn').addEventListener('click', saveAnnotation);

@@ -1,0 +1,8 @@
+{
+  "buildCommand": null,
+  "outputDirectory": ".",
+  "framework": null,
+  "rewrites": [
+    { "source": "/auth/callback", "destination": "/index.html" }
+  ]
+}

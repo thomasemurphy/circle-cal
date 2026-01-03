@@ -7,6 +7,20 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <header class="app-header">
+        <h1>Circle Calendar</h1>
+        <div id="auth-section">
+            <button id="login-btn" class="auth-btn" style="display: none;">
+                Sign in with Google
+            </button>
+            <div id="user-info" style="display: none;">
+                <img id="user-avatar" alt="User avatar" />
+                <span id="user-name"></span>
+                <button id="logout-btn" class="auth-btn logout">Logout</button>
+            </div>
+        </div>
+    </header>
+
     <div class="container">
         <svg id="calendar" viewBox="-350 -350 700 700"></svg>
 
@@ -25,6 +39,12 @@
         </div>
     </div>
 
+    <script>
+        // Configuration - set API_URL before deploying
+        window.CONFIG = {
+            API_URL: '' // Empty means same origin; set to Railway URL in production
+        };
+    </script>
     <script src="app.js"></script>
 </body>
 </html>
