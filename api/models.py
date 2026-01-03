@@ -1,5 +1,4 @@
 from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
@@ -7,10 +6,14 @@ import uuid
 from .database import Base
 
 
+def generate_uuid():
+    return str(uuid.uuid4())
+
+
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String(36), primary_key=True, default=generate_uuid)
     google_id = Column(String(255), unique=True, nullable=False)
     email = Column(String(255), nullable=False)
     name = Column(String(255))
@@ -23,8 +26,8 @@ class User(Base):
 class Event(Base):
     __tablename__ = "events"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     month = Column(Integer, nullable=False)
     day = Column(Integer, nullable=False)
     title = Column(String(500), nullable=False)

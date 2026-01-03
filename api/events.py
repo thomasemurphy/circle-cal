@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from uuid import UUID
 
 from .database import get_db
 from .models import User, Event
@@ -42,7 +41,7 @@ async def create_event(
 
 @router.put("/{event_id}", response_model=EventResponse)
 async def update_event(
-    event_id: UUID,
+    event_id: str,
     event_data: EventUpdate,
     user: User = Depends(require_user),
     db: AsyncSession = Depends(get_db),
@@ -69,7 +68,7 @@ async def update_event(
 
 @router.delete("/{event_id}", status_code=204)
 async def delete_event(
-    event_id: UUID,
+    event_id: str,
     user: User = Depends(require_user),
     db: AsyncSession = Depends(get_db),
 ):

@@ -1,11 +1,10 @@
 from pydantic import BaseModel, Field
-from uuid import UUID
 from datetime import datetime
 from typing import Optional
 
 
 class UserResponse(BaseModel):
-    id: UUID
+    id: str
     email: str
     name: Optional[str]
     picture_url: Optional[str]
@@ -27,7 +26,7 @@ class EventUpdate(BaseModel):
 
 
 class EventResponse(BaseModel):
-    id: UUID
+    id: str
     month: int
     day: int
     title: str
