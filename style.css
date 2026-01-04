@@ -101,16 +101,9 @@ body {
     transition: fill 0.15s ease;
 }
 
-.day-segment.even-month {
-    fill: #f5f5f5;
-}
 
 .day-segment.weekend {
     fill: #f0f0f0;
-}
-
-.day-segment.weekend.even-month {
-    fill: #e8e8e8;
 }
 
 .day-segment:hover,
@@ -122,8 +115,7 @@ body {
     fill: rgba(187, 222, 251, 0.85);
 }
 
-.day-segment.weekend.range-selected,
-.day-segment.weekend.even-month.range-selected {
+.day-segment.weekend.range-selected {
     fill: rgba(150, 195, 230, 0.9);
 }
 
@@ -131,19 +123,14 @@ body {
     fill: #ff6360;
 }
 
-.day-segment.has-event.even-month {
-    fill: #ff6360;
-}
-
-.day-segment.weekend.has-event,
-.day-segment.weekend.even-month.has-event {
+.day-segment.weekend.has-event {
     filter: brightness(0.88);
 }
 
 /* Month ticks */
 .month-tick {
-    stroke: rgba(0, 0, 0, 0.3);
-    stroke-width: 0.75;
+    stroke: rgba(0, 0, 0, 0.5);
+    stroke-width: 0.4;
     stroke-linecap: round;
 }
 
@@ -203,8 +190,8 @@ body {
 
 /* Annotation markers */
 .annotation-line {
-    stroke: #ff6360;
-    stroke-width: 0.5;
+    stroke: #ccc;
+    stroke-width: 0.3;
 }
 
 .annotation-text {

@@ -495,19 +495,27 @@
                 // Determine line start point based on text position (inside or outside)
                 const textDist = Math.sqrt(textX * textX + textY * textY);
                 const isInside = textDist < INNER_RADIUS;
-                const lineStartPos = isInside ? polarToCartesian(angle, INNER_RADIUS) : outerEdgePos;
+                const lineStartRadius = isInside ? INNER_RADIUS - 3 : OUTER_RADIUS + 3;
+                const lineStartPos = polarToCartesian(angle, lineStartRadius);
+
+                // Calculate line end with gap from text
+                const lineGap = 3;
+                const dx = textX - lineStartPos.x;
+                const dy = textY - lineStartPos.y;
+                const lineLen = Math.sqrt(dx * dx + dy * dy);
+                const lineEndX = lineLen > lineGap ? textX - (dx / lineLen) * lineGap : textX;
+                const lineEndY = lineLen > lineGap ? textY - (dy / lineLen) * lineGap : textY;
 
                 // Line connecting to event text
                 const line = document.createElementNS(SVG_NS, 'line');
                 line.setAttribute('x1', lineStartPos.x);
                 line.setAttribute('y1', lineStartPos.y);
-                line.setAttribute('x2', textX);
-                line.setAttribute('y2', textY);
+                line.setAttribute('x2', lineEndX);
+                line.setAttribute('y2', lineEndY);
                 line.setAttribute('class', 'annotation-line');
                 line.setAttribute('data-date-key', dateKey);
                 line.setAttribute('data-index', index);
                 line.setAttribute('data-angle', angle);
-                line.style.stroke = color;
                 group.appendChild(line);
 
                 const text = document.createElementNS(SVG_NS, 'text');
@@ -613,18 +621,24 @@
             `.annotation-line[data-date-key="${draggedAnnotation.dateKey}"][data-index="${draggedAnnotation.index}"]`
         );
         if (line) {
-            // Update line end point
-            line.setAttribute('x2', newX);
-            line.setAttribute('y2', newY);
-
             // Update line start point based on whether text is inside or outside
             const textDist = Math.sqrt(newX * newX + newY * newY);
             const isInside = textDist < INNER_RADIUS;
             const angle = parseFloat(line.getAttribute('data-angle'));
-            const lineStartRadius = isInside ? INNER_RADIUS : OUTER_RADIUS;
+            const lineStartRadius = isInside ? INNER_RADIUS - 3 : OUTER_RADIUS + 3;
             const lineStartPos = polarToCartesian(angle, lineStartRadius);
             line.setAttribute('x1', lineStartPos.x);
             line.setAttribute('y1', lineStartPos.y);
+
+            // Update line end point with gap from text
+            const lineGap = 3;
+            const dx = newX - lineStartPos.x;
+            const dy = newY - lineStartPos.y;
+            const lineLen = Math.sqrt(dx * dx + dy * dy);
+            const lineEndX = lineLen > lineGap ? newX - (dx / lineLen) * lineGap : newX;
+            const lineEndY = lineLen > lineGap ? newY - (dy / lineLen) * lineGap : newY;
+            line.setAttribute('x2', lineEndX);
+            line.setAttribute('y2', lineEndY);
         }
     }
 
