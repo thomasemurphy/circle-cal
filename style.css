@@ -336,6 +336,26 @@ body {
     gap: 10px;
     margin-top: 16px;
     justify-content: flex-end;
+    align-items: center;
+}
+
+.modal-buttons .delete-btn {
+    margin-right: auto;
+    padding: 8px;
+    background: none;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.modal-buttons .delete-btn:hover {
+    color: #e53935;
+    border-color: #e53935;
 }
 
 .modal-buttons button {

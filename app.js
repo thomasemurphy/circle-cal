@@ -21,7 +21,7 @@
 
     // Zoom state (continuous)
     const MIN_ZOOM = 1;
-    const MAX_ZOOM = 5;
+    const MAX_ZOOM = 15;
     let currentZoom = 1;
 
     // Pan state
@@ -402,6 +402,8 @@
     // Drag state for annotation labels
     let draggedAnnotation = null;
     let dragOffset = { x: 0, y: 0 };
+    let hasDragged = false;
+    let editingAnnotation = null; // { dateKey, index } when editing existing
 
     function createAnnotationMarkers(year) {
         const group = document.createElementNS(SVG_NS, 'g');
@@ -519,6 +521,7 @@
             x: svgP.x - parseFloat(text.getAttribute('x')),
             y: svgP.y - parseFloat(text.getAttribute('y'))
         };
+        hasDragged = false;
 
         text.style.cursor = 'grabbing';
         document.addEventListener('mousemove', dragAnnotation);
@@ -527,6 +530,8 @@
 
     function dragAnnotation(e) {
         if (!draggedAnnotation) return;
+
+        hasDragged = true;
 
         const pt = svg.createSVGPoint();
         pt.x = e.clientX;
@@ -581,12 +586,23 @@
     function endAnnotationDrag(e) {
         if (!draggedAnnotation) return;
 
+        const dateKey = draggedAnnotation.dateKey;
+        const index = draggedAnnotation.index;
+
+        if (!hasDragged) {
+            // It was a click, not a drag - open edit modal
+            draggedAnnotation.element.style.cursor = 'grab';
+            draggedAnnotation = null;
+            document.removeEventListener('mousemove', dragAnnotation);
+            document.removeEventListener('mouseup', endAnnotationDrag);
+            openEditModal(dateKey, index);
+            return;
+        }
+
         const newX = parseFloat(draggedAnnotation.element.getAttribute('x'));
         const newY = parseFloat(draggedAnnotation.element.getAttribute('y'));
 
         // Save position to annotation data
-        const dateKey = draggedAnnotation.dateKey;
-        const index = draggedAnnotation.index;
         const annotation = annotations[dateKey][index];
 
         if (typeof annotation === 'string') {
@@ -606,6 +622,35 @@
         draggedAnnotation = null;
         document.removeEventListener('mousemove', dragAnnotation);
         document.removeEventListener('mouseup', endAnnotationDrag);
+    }
+
+    function openEditModal(dateKey, index) {
+        const [month, day] = dateKey.split('-').map(Number);
+        const annotation = annotations[dateKey][index];
+        const title = typeof annotation === 'string' ? annotation : annotation.title;
+        const color = (typeof annotation === 'object' && annotation.color) ? annotation.color : DEFAULT_COLOR;
+
+        editingAnnotation = { dateKey, index };
+        selectedDate = { month: month - 1, day };
+        modalDate.textContent = formatDate(month - 1, day);
+
+        // Hide existing annotations list when editing
+        existingAnnotations.innerHTML = '';
+
+        // Set current values
+        annotationInput.value = title;
+        selectedColor = color;
+        document.querySelectorAll('.color-option').forEach(opt => {
+            opt.classList.toggle('selected', opt.getAttribute('data-color') === color);
+        });
+
+        // Show delete button, hide it otherwise
+        const deleteBtn = document.getElementById('delete-btn');
+        if (deleteBtn) deleteBtn.style.display = 'inline-block';
+
+        modal.style.display = 'flex';
+        annotationInput.focus();
+        annotationInput.select();
     }
 
     function createCenterText(year) {
@@ -628,7 +673,7 @@
         // Date text (above center)
         const dateText = document.createElementNS(SVG_NS, 'text');
         dateText.setAttribute('x', 0);
-        dateText.setAttribute('y', -8);
+        dateText.setAttribute('y', -10);
         dateText.setAttribute('class', 'center-date');
         dateText.setAttribute('text-anchor', 'middle');
         dateText.setAttribute('dominant-baseline', 'middle');
@@ -642,6 +687,9 @@
         timeText.setAttribute('text-anchor', 'middle');
         timeText.setAttribute('dominant-baseline', 'middle');
         timeText.textContent = timeStr;
+
+        // Initial transform at origin (will be updated by updateCenterTextPosition)
+        group.setAttribute('transform', 'translate(0, 0)');
 
         group.appendChild(dateText);
         group.appendChild(timeText);
@@ -670,6 +718,53 @@
 
         if (dateText) dateText.textContent = dateStr;
         if (timeText) timeText.textContent = timeStr;
+    }
+
+    function updateCenterTextPosition() {
+        const group = document.getElementById('center-text-group');
+        if (!group) return;
+
+        const vb = getViewBox();
+
+        // Check if origin (0, 0) is within the viewport
+        const originVisible = (
+            0 >= vb.x && 0 <= vb.x + vb.w &&
+            0 >= vb.y && 0 <= vb.y + vb.h
+        );
+
+        let posX, posY;
+        if (originVisible) {
+            // Keep at original center position
+            posX = 0;
+            posY = 0;
+        } else {
+            // Move to lower center of viewport with some padding
+            const padding = 20 / currentZoom;
+            posX = vb.x + vb.w / 2;  // Center horizontally
+            posY = vb.y + vb.h - padding;  // Bottom with padding
+        }
+
+        group.setAttribute('transform', `translate(${posX}, ${posY})`);
+
+        // Scale font size inversely with zoom to maintain constant screen size
+        const dateText = group.querySelector('.center-date');
+        const timeText = group.querySelector('.center-time');
+        const baseDateSize = 12;
+        const baseTimeSize = 14;
+        const scaledDateSize = baseDateSize / currentZoom;
+        const scaledTimeSize = baseTimeSize / currentZoom;
+        const yOffset = 10 / currentZoom;
+
+        if (dateText) {
+            dateText.setAttribute('y', -yOffset);
+            dateText.style.fontSize = scaledDateSize + 'px';
+            dateText.setAttribute('text-anchor', 'middle');
+        }
+        if (timeText) {
+            timeText.setAttribute('y', yOffset);
+            timeText.style.fontSize = scaledTimeSize + 'px';
+            timeText.setAttribute('text-anchor', 'middle');
+        }
     }
 
     function handleDayHover(e) {
@@ -701,6 +796,7 @@
         const day = parseInt(e.target.getAttribute('data-day'));
 
         selectedDate = { month, day };
+        editingAnnotation = null; // Not editing, adding new
         modalDate.textContent = formatDate(month, day);
 
         const dateKey = getDateKey(month, day);
@@ -713,6 +809,10 @@
         document.querySelectorAll('.color-option').forEach(opt => {
             opt.classList.toggle('selected', opt.getAttribute('data-color') === DEFAULT_COLOR);
         });
+
+        // Hide delete button when adding new
+        const deleteBtn = document.getElementById('delete-btn');
+        if (deleteBtn) deleteBtn.style.display = 'none';
 
         annotationInput.value = '';
         modal.style.display = 'flex';
@@ -771,19 +871,63 @@
         }
 
         const dateKey = getDateKey(selectedDate.month, selectedDate.day);
-        if (!annotations[dateKey]) {
-            annotations[dateKey] = [];
-        }
 
-        if (currentUser) {
-            // Save to API
-            const event = await createEventAPI(selectedDate.month + 1, selectedDate.day, text);
-            if (event) {
-                annotations[dateKey].push({ id: event.id, title: event.title, color: selectedColor });
+        if (editingAnnotation) {
+            // Editing existing annotation
+            const annotation = annotations[editingAnnotation.dateKey][editingAnnotation.index];
+            if (typeof annotation === 'object') {
+                annotation.title = text;
+                annotation.color = selectedColor;
+            } else {
+                annotations[editingAnnotation.dateKey][editingAnnotation.index] = {
+                    title: text,
+                    color: selectedColor
+                };
+            }
+            if (!currentUser) {
+                saveAnnotationsLocal();
             }
         } else {
-            // Save locally with color
-            annotations[dateKey].push({ title: text, color: selectedColor });
+            // Adding new annotation
+            if (!annotations[dateKey]) {
+                annotations[dateKey] = [];
+            }
+
+            if (currentUser) {
+                // Save to API
+                const event = await createEventAPI(selectedDate.month + 1, selectedDate.day, text);
+                if (event) {
+                    annotations[dateKey].push({ id: event.id, title: event.title, color: selectedColor });
+                }
+            } else {
+                // Save locally with color
+                annotations[dateKey].push({ title: text, color: selectedColor });
+                saveAnnotationsLocal();
+            }
+        }
+
+        updateAnnotationMarkers();
+        closeModal();
+    }
+
+    async function deleteCurrentAnnotation() {
+        if (!editingAnnotation) return;
+
+        const { dateKey, index } = editingAnnotation;
+        const annotation = annotations[dateKey][index];
+        const eventId = (typeof annotation === 'object') ? annotation.id : null;
+
+        // Delete from API if logged in and has event ID
+        if (currentUser && eventId) {
+            await deleteEventAPI(eventId);
+        }
+
+        annotations[dateKey].splice(index, 1);
+        if (annotations[dateKey].length === 0) {
+            delete annotations[dateKey];
+        }
+
+        if (!currentUser) {
             saveAnnotationsLocal();
         }
 
@@ -794,6 +938,7 @@
     function closeModal() {
         modal.style.display = 'none';
         selectedDate = null;
+        editingAnnotation = null;
         annotationInput.value = '';
     }
 
@@ -860,6 +1005,7 @@
         currentZoom = 700 / w;
         svg.classList.toggle('zoomed', currentZoom > 1.1);
         updateDynamicFontSizes();
+        updateCenterTextPosition();
     }
 
     function updateDynamicFontSizes() {
@@ -937,6 +1083,7 @@
         const dy = (e.clientY - panStart.y) * scale;
 
         svg.setAttribute('viewBox', `${viewBoxStart.x - dx} ${viewBoxStart.y - dy} ${vb.w} ${vb.h}`);
+        updateCenterTextPosition();
     }
 
     function handlePanEnd(e) {
@@ -975,6 +1122,7 @@
         // Modal event listeners
         document.getElementById('save-btn').addEventListener('click', saveAnnotation);
         document.getElementById('cancel-btn').addEventListener('click', closeModal);
+        document.getElementById('delete-btn').addEventListener('click', deleteCurrentAnnotation);
 
         // Color picker event listeners
         document.querySelectorAll('.color-option').forEach(btn => {
