@@ -14,10 +14,15 @@
 
     let annotations = {};
     let selectedDate = null;
+    let selectedEndDate = null; // For multi-day events
     let currentUser = null;
     let events = []; // Events from API
     let selectedColor = '#ff6360'; // Default color
     const DEFAULT_COLOR = '#ff6360';
+
+    // Range selection state
+    let isSelectingRange = false;
+    let rangeStartDate = null;
 
     // Zoom state (continuous)
     const MIN_ZOOM = 1;
@@ -166,6 +171,24 @@
         return DAYS_IN_MONTH[month];
     }
 
+    // Get day of year from month (0-indexed) and day
+    function getDayOfYearFromMonthDay(month, day, year) {
+        let dayOfYear = day;
+        for (let m = 0; m < month; m++) {
+            dayOfYear += getDaysInMonth(m, year);
+        }
+        return dayOfYear;
+    }
+
+    // Compare two dates (month is 0-indexed), returns -1, 0, or 1
+    function compareDates(m1, d1, m2, d2) {
+        if (m1 < m2) return -1;
+        if (m1 > m2) return 1;
+        if (d1 < d2) return -1;
+        if (d1 > d2) return 1;
+        return 0;
+    }
+
     function getDayOfYear(date) {
         const year = date.getFullYear();
         const month = date.getMonth();
@@ -259,7 +282,9 @@
 
                 path.addEventListener('mouseenter', handleDayHover);
                 path.addEventListener('mouseleave', handleDayLeave);
-                path.addEventListener('click', handleDayClick);
+                path.addEventListener('mousedown', handleDayMouseDown);
+                path.addEventListener('mouseenter', handleDayRangeMove);
+                path.addEventListener('mouseup', handleDayMouseUp);
 
                 group.appendChild(path);
 
@@ -411,27 +436,47 @@
         group.setAttribute('id', 'annotation-markers');
 
         const totalDays = getDaysInYear(year);
-        const DEFAULT_LABEL_RADIUS = OUTER_RADIUS + 25;
+        const DEFAULT_LABEL_RADIUS = OUTER_RADIUS + 6;
 
         for (const [dateKey, annList] of Object.entries(annotations)) {
             if (!annList || annList.length === 0) continue;
 
             const [month, day] = dateKey.split('-').map(Number);
-            let dayOfYear = 0;
-            for (let m = 0; m < month - 1; m++) {
-                dayOfYear += getDaysInMonth(m, year);
-            }
-            dayOfYear += day;
-
-            const angle = dateToAngle(dayOfYear - 0.5, totalDays);
-            const outerEdgePos = polarToCartesian(angle, OUTER_RADIUS);
-
-            // Format date string (e.g., "Jan 6")
-            const monthAbbr = MONTHS[month - 1].substring(0, 3);
-            const dateLabel = `${monthAbbr} ${day}`;
+            // month in dateKey is 1-indexed, convert to 0-indexed for calculations
+            const startMonth = month - 1;
+            const startDay = day;
 
             // Create text and line for each annotation
             annList.forEach((annotation, index) => {
+                // Check for multi-day event
+                const hasEndDate = typeof annotation === 'object' && annotation.endMonth !== undefined;
+                const endMonth = hasEndDate ? annotation.endMonth : startMonth;
+                const endDay = hasEndDate ? annotation.endDay : startDay;
+
+                // Calculate day of year for start and end
+                const startDoy = getDayOfYearFromMonthDay(startMonth, startDay, year);
+                const endDoy = getDayOfYearFromMonthDay(endMonth, endDay, year);
+
+                // Use midpoint for multi-day events, or the day itself for single-day
+                const midDoy = hasEndDate ? (startDoy + endDoy) / 2 : startDoy - 0.5;
+                const angle = dateToAngle(midDoy, totalDays);
+                const outerEdgePos = polarToCartesian(angle, OUTER_RADIUS);
+
+                // Format date label
+                let dateLabel;
+                if (hasEndDate) {
+                    const startAbbr = MONTHS[startMonth].substring(0, 3);
+                    if (startMonth === endMonth) {
+                        dateLabel = `${startAbbr} ${startDay}-${endDay}`;
+                    } else {
+                        const endAbbr = MONTHS[endMonth].substring(0, 3);
+                        dateLabel = `${startAbbr} ${startDay}-${endAbbr} ${endDay}`;
+                    }
+                } else {
+                    const monthAbbr = MONTHS[startMonth].substring(0, 3);
+                    dateLabel = `${monthAbbr} ${startDay}`;
+                }
+
                 // Get stored position or calculate default
                 let textX, textY;
                 if (typeof annotation === 'object' && annotation.x !== undefined && annotation.y !== undefined) {
@@ -791,18 +836,85 @@
         e.target.classList.remove('hovered');
     }
 
-    function handleDayClick(e) {
+    function handleDayMouseDown(e) {
+        e.preventDefault();
         const month = parseInt(e.target.getAttribute('data-month'));
         const day = parseInt(e.target.getAttribute('data-day'));
 
+        isSelectingRange = true;
+        rangeStartDate = { month, day };
         selectedDate = { month, day };
-        editingAnnotation = null; // Not editing, adding new
-        modalDate.textContent = formatDate(month, day);
+        selectedEndDate = null;
 
-        const dateKey = getDateKey(month, day);
-        const existing = annotations[dateKey] || [];
+        // Highlight the starting day
+        clearRangeHighlight();
+        e.target.classList.add('range-selected');
 
-        renderExistingAnnotations(dateKey, existing);
+        // Add global mouseup listener in case user releases outside a day segment
+        document.addEventListener('mouseup', handleGlobalMouseUp);
+    }
+
+    function handleDayRangeMove(e) {
+        if (!isSelectingRange || !rangeStartDate) return;
+
+        const month = parseInt(e.target.getAttribute('data-month'));
+        const day = parseInt(e.target.getAttribute('data-day'));
+        const year = new Date().getFullYear();
+
+        // Only allow forward selection (end >= start)
+        if (compareDates(month, day, rangeStartDate.month, rangeStartDate.day) >= 0) {
+            selectedEndDate = { month, day };
+            highlightRange(rangeStartDate, selectedEndDate, year);
+        }
+    }
+
+    function handleDayMouseUp(e) {
+        if (!isSelectingRange) return;
+
+        const month = parseInt(e.target.getAttribute('data-month'));
+        const day = parseInt(e.target.getAttribute('data-day'));
+
+        // If released on valid forward date, update end date
+        if (compareDates(month, day, rangeStartDate.month, rangeStartDate.day) >= 0) {
+            selectedEndDate = { month, day };
+        }
+
+        finishRangeSelection();
+    }
+
+    function handleGlobalMouseUp(e) {
+        if (!isSelectingRange) return;
+        document.removeEventListener('mouseup', handleGlobalMouseUp);
+
+        // If mouseup happened outside day segments, use current selection
+        if (!e.target.classList.contains('day-segment')) {
+            finishRangeSelection();
+        }
+    }
+
+    function finishRangeSelection() {
+        isSelectingRange = false;
+        document.removeEventListener('mouseup', handleGlobalMouseUp);
+
+        selectedDate = rangeStartDate;
+        editingAnnotation = null;
+
+        // Format the date header
+        if (selectedEndDate && compareDates(selectedEndDate.month, selectedEndDate.day, selectedDate.month, selectedDate.day) > 0) {
+            // Multi-day range
+            const startStr = formatDate(selectedDate.month, selectedDate.day);
+            const endStr = selectedDate.month === selectedEndDate.month
+                ? selectedEndDate.day  // Same month, just show day
+                : formatDate(selectedEndDate.month, selectedEndDate.day);
+            modalDate.textContent = `${startStr}-${endStr}`;
+        } else {
+            // Single day
+            selectedEndDate = null;
+            modalDate.textContent = formatDate(selectedDate.month, selectedDate.day);
+        }
+
+        // For new events, don't show existing (could be complex with ranges)
+        existingAnnotations.innerHTML = '';
 
         // Reset color picker to default
         selectedColor = DEFAULT_COLOR;
@@ -817,6 +929,26 @@
         annotationInput.value = '';
         modal.style.display = 'flex';
         annotationInput.focus();
+    }
+
+    function clearRangeHighlight() {
+        document.querySelectorAll('.day-segment.range-selected').forEach(el => {
+            el.classList.remove('range-selected');
+        });
+    }
+
+    function highlightRange(start, end, year) {
+        clearRangeHighlight();
+
+        const startDoy = getDayOfYearFromMonthDay(start.month, start.day, year);
+        const endDoy = getDayOfYearFromMonthDay(end.month, end.day, year);
+
+        document.querySelectorAll('.day-segment').forEach(segment => {
+            const doy = parseInt(segment.getAttribute('data-day-of-year'));
+            if (doy >= startDoy && doy <= endDoy) {
+                segment.classList.add('range-selected');
+            }
+        });
     }
 
     function renderExistingAnnotations(dateKey, existing) {
@@ -893,15 +1025,46 @@
                 annotations[dateKey] = [];
             }
 
+            // Build annotation object
+            const newAnnotation = {
+                title: text,
+                color: selectedColor
+            };
+
+            // Add end date for multi-day events
+            if (selectedEndDate && compareDates(selectedEndDate.month, selectedEndDate.day, selectedDate.month, selectedDate.day) > 0) {
+                newAnnotation.endMonth = selectedEndDate.month;
+                newAnnotation.endDay = selectedEndDate.day;
+            }
+
+            // Calculate initial position within current viewport
+            const year = new Date().getFullYear();
+            const totalDays = getDaysInYear(year);
+            let targetAngle;
+            if (newAnnotation.endMonth !== undefined) {
+                // Multi-day event - use midpoint
+                const startDoy = getDayOfYearFromMonthDay(selectedDate.month, selectedDate.day, year);
+                const endDoy = getDayOfYearFromMonthDay(newAnnotation.endMonth, newAnnotation.endDay, year);
+                targetAngle = dateToAngle((startDoy + endDoy) / 2, totalDays);
+            } else {
+                // Single day
+                const doy = getDayOfYearFromMonthDay(selectedDate.month, selectedDate.day, year);
+                targetAngle = dateToAngle(doy - 0.5, totalDays);
+            }
+            const initialPos = calculateInitialAnnotationPosition(targetAngle);
+            newAnnotation.x = initialPos.x;
+            newAnnotation.y = initialPos.y;
+
             if (currentUser) {
                 // Save to API
                 const event = await createEventAPI(selectedDate.month + 1, selectedDate.day, text);
                 if (event) {
-                    annotations[dateKey].push({ id: event.id, title: event.title, color: selectedColor });
+                    newAnnotation.id = event.id;
+                    annotations[dateKey].push(newAnnotation);
                 }
             } else {
                 // Save locally with color
-                annotations[dateKey].push({ title: text, color: selectedColor });
+                annotations[dateKey].push(newAnnotation);
                 saveAnnotationsLocal();
             }
         }
@@ -938,8 +1101,10 @@
     function closeModal() {
         modal.style.display = 'none';
         selectedDate = null;
+        selectedEndDate = null;
         editingAnnotation = null;
         annotationInput.value = '';
+        clearRangeHighlight();
     }
 
     function updateAnnotationMarkers() {
@@ -949,9 +1114,12 @@
         }
         svg.appendChild(createAnnotationMarkers(new Date().getFullYear()));
         updateDaySegmentHighlights();
+        updateDynamicFontSizes();
     }
 
     function updateDaySegmentHighlights() {
+        const year = new Date().getFullYear();
+
         // Clear all existing highlights and inline styles
         document.querySelectorAll('.day-segment.has-event').forEach(el => {
             el.classList.remove('has-event');
@@ -963,19 +1131,40 @@
             if (!annotations[dateKey] || annotations[dateKey].length === 0) continue;
 
             const [month, day] = dateKey.split('-').map(Number);
-            // Find the day segment (data-month is 0-indexed, dateKey month is 1-indexed)
-            const segment = document.querySelector(
-                `.day-segment[data-month="${month - 1}"][data-day="${day}"]`
-            );
-            if (segment) {
-                segment.classList.add('has-event');
-                // Use the first event's color for the tile
-                const firstAnnotation = annotations[dateKey][0];
-                const color = (typeof firstAnnotation === 'object' && firstAnnotation.color)
-                    ? firstAnnotation.color
+            const startMonth = month - 1; // Convert to 0-indexed
+
+            // Process each annotation for this date
+            annotations[dateKey].forEach(annotation => {
+                const color = (typeof annotation === 'object' && annotation.color)
+                    ? annotation.color
                     : DEFAULT_COLOR;
-                segment.style.fill = color;
-            }
+
+                // Check for multi-day event
+                const hasEndDate = typeof annotation === 'object' && annotation.endMonth !== undefined;
+
+                if (hasEndDate) {
+                    // Highlight all days in the range
+                    const startDoy = getDayOfYearFromMonthDay(startMonth, day, year);
+                    const endDoy = getDayOfYearFromMonthDay(annotation.endMonth, annotation.endDay, year);
+
+                    document.querySelectorAll('.day-segment').forEach(segment => {
+                        const doy = parseInt(segment.getAttribute('data-day-of-year'));
+                        if (doy >= startDoy && doy <= endDoy) {
+                            segment.classList.add('has-event');
+                            segment.style.fill = color;
+                        }
+                    });
+                } else {
+                    // Single day event
+                    const segment = document.querySelector(
+                        `.day-segment[data-month="${startMonth}"][data-day="${day}"]`
+                    );
+                    if (segment) {
+                        segment.classList.add('has-event');
+                        segment.style.fill = color;
+                    }
+                }
+            });
         }
     }
 
@@ -998,6 +1187,50 @@
     function getViewBox() {
         const vb = svg.getAttribute('viewBox').split(' ').map(Number);
         return { x: vb[0], y: vb[1], w: vb[2], h: vb[3] };
+    }
+
+    function isPointInViewBox(x, y, vb) {
+        return x >= vb.x && x <= vb.x + vb.w && y >= vb.y && y <= vb.y + vb.h;
+    }
+
+    function calculateInitialAnnotationPosition(angle) {
+        const vb = getViewBox();
+        const DEFAULT_LABEL_RADIUS = OUTER_RADIUS + 6;
+        const INSIDE_LABEL_RADIUS = CENTER_RADIUS - 20;
+
+        // Try outside position first (default behavior)
+        const outsidePos = polarToCartesian(angle, DEFAULT_LABEL_RADIUS);
+        if (isPointInViewBox(outsidePos.x, outsidePos.y, vb)) {
+            return outsidePos;
+        }
+
+        // Try inside position
+        const insidePos = polarToCartesian(angle, INSIDE_LABEL_RADIUS);
+        if (isPointInViewBox(insidePos.x, insidePos.y, vb)) {
+            return insidePos;
+        }
+
+        // Neither standard position is visible - position within viewbox
+        // Offset from viewbox center in the direction of the date tile
+        const vbCenterX = vb.x + vb.w / 2;
+        const vbCenterY = vb.y + vb.h / 2;
+
+        const offsetRadius = Math.min(vb.w, vb.h) * 0.3;
+        const rad = (angle * Math.PI) / 180;
+        let targetX = vbCenterX + Math.cos(rad) * offsetRadius;
+        let targetY = vbCenterY + Math.sin(rad) * offsetRadius;
+
+        // Make sure it's not in the date ring
+        const distFromCenter = Math.sqrt(targetX * targetX + targetY * targetY);
+        if (distFromCenter > INNER_RADIUS && distFromCenter < OUTER_RADIUS) {
+            const angleFromOrigin = Math.atan2(targetY, targetX);
+            const midRing = (INNER_RADIUS + OUTER_RADIUS) / 2;
+            const targetRadius = distFromCenter < midRing ? CENTER_RADIUS : OUTER_RADIUS + 10;
+            targetX = Math.cos(angleFromOrigin) * targetRadius;
+            targetY = Math.sin(angleFromOrigin) * targetRadius;
+        }
+
+        return { x: targetX, y: targetY };
     }
 
     function setViewBox(x, y, w, h) {
@@ -1065,6 +1298,9 @@
     function handlePanStart(e) {
         // Only pan with left mouse button, not during day clicks
         if (e.button !== 0) return;
+
+        // Don't pan when clicking on day segments (for range selection)
+        if (e.target.classList.contains('day-segment')) return;
 
         isPanning = true;
         panStart = { x: e.clientX, y: e.clientY };

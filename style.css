@@ -85,6 +85,7 @@ body {
     width: 100%;
     height: auto;
     transition: all 0.3s ease;
+    user-select: none;
 }
 
 #calendar.zoomed {
@@ -95,7 +96,7 @@ body {
 .day-segment {
     fill: #fff;
     stroke: #e0e0e0;
-    stroke-width: 0.5;
+    stroke-width: 0.05;
     cursor: pointer;
     transition: fill 0.15s ease;
 }
@@ -117,12 +118,26 @@ body {
     fill: #e3f2fd;
 }
 
+.day-segment.range-selected {
+    fill: rgba(187, 222, 251, 0.85);
+}
+
+.day-segment.weekend.range-selected,
+.day-segment.weekend.even-month.range-selected {
+    fill: rgba(150, 195, 230, 0.9);
+}
+
 .day-segment.has-event {
     fill: #ff6360;
 }
 
 .day-segment.has-event.even-month {
     fill: #ff6360;
+}
+
+.day-segment.weekend.has-event,
+.day-segment.weekend.even-month.has-event {
+    filter: brightness(0.88);
 }
 
 /* Month ticks */
