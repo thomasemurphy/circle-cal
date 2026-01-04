@@ -16,11 +16,13 @@
     let selectedDate = null;
     let currentUser = null;
     let events = []; // Events from API
+    let selectedColor = '#ff6360'; // Default color
+    const DEFAULT_COLOR = '#ff6360';
 
-    // Zoom state
-    let isZoomed = false;
-    let zoomCenter = { x: 0, y: 0 };
-    const ZOOM_LEVEL = 3;
+    // Zoom state (continuous)
+    const MIN_ZOOM = 1;
+    const MAX_ZOOM = 5;
+    let currentZoom = 1;
 
     // Pan state
     let isPanning = false;
@@ -165,10 +167,22 @@
     }
 
     function getDayOfYear(date) {
-        const start = new Date(date.getFullYear(), 0, 0);
-        const diff = date - start;
-        const oneDay = 1000 * 60 * 60 * 24;
-        return Math.floor(diff / oneDay);
+        const year = date.getFullYear();
+        const month = date.getMonth();
+        const day = date.getDate();
+
+        let dayOfYear = day - 1; // Start of current day
+        for (let m = 0; m < month; m++) {
+            dayOfYear += getDaysInMonth(m, year);
+        }
+
+        // Add fractional day based on current time
+        const hours = date.getHours();
+        const minutes = date.getMinutes();
+        const seconds = date.getSeconds();
+        const fractionOfDay = (hours * 3600 + minutes * 60 + seconds) / 86400;
+
+        return dayOfYear + fractionOfDay;
     }
 
     function dateToAngle(dayOfYear, totalDays) {
@@ -236,20 +250,41 @@
                     path.classList.add('even-month');
                 }
 
+                // Check if weekend (Saturday = 6, Sunday = 0)
+                const date = new Date(year, month, day);
+                const dayOfWeek = date.getDay();
+                if (dayOfWeek === 0 || dayOfWeek === 6) {
+                    path.classList.add('weekend');
+                }
+
                 path.addEventListener('mouseenter', handleDayHover);
                 path.addEventListener('mouseleave', handleDayLeave);
                 path.addEventListener('click', handleDayClick);
 
                 group.appendChild(path);
 
-                // Add day number label
+                // Add day of week and day number labels
                 const midAngle = (startAngle + endAngle) / 2;
-                const labelRadius = (INNER_RADIUS + OUTER_RADIUS) / 2;
-                const labelPos = polarToCartesian(midAngle, labelRadius);
+                const dayOfWeekRadius = (INNER_RADIUS + OUTER_RADIUS) / 2 + 2;
+                const dayNumberRadius = (INNER_RADIUS + OUTER_RADIUS) / 2 - 2;
 
+                // Day of week abbreviation
+                const DOW_ABBREV = ['Su', 'M', 'T', 'W', 'Th', 'F', 'Sa'];
+                const dowPos = polarToCartesian(midAngle, dayOfWeekRadius);
+                const dowText = document.createElementNS(SVG_NS, 'text');
+                dowText.setAttribute('x', dowPos.x);
+                dowText.setAttribute('y', dowPos.y);
+                dowText.setAttribute('class', 'day-of-week');
+                dowText.setAttribute('text-anchor', 'middle');
+                dowText.setAttribute('dominant-baseline', 'middle');
+                dowText.textContent = DOW_ABBREV[dayOfWeek];
+                group.appendChild(dowText);
+
+                // Day number
+                const dayNumPos = polarToCartesian(midAngle, dayNumberRadius);
                 const text = document.createElementNS(SVG_NS, 'text');
-                text.setAttribute('x', labelPos.x);
-                text.setAttribute('y', labelPos.y);
+                text.setAttribute('x', dayNumPos.x);
+                text.setAttribute('y', dayNumPos.y);
                 text.setAttribute('class', 'day-number');
                 text.setAttribute('text-anchor', 'middle');
                 text.setAttribute('dominant-baseline', 'middle');
@@ -296,7 +331,7 @@
             }
             text.setAttribute('transform', `rotate(${rotation}, ${pos.x}, ${pos.y})`);
 
-            text.textContent = MONTHS[month].substring(0, 3);
+            text.textContent = MONTHS[month];
 
             group.appendChild(text);
             dayOfYear += daysInMonth;
@@ -364,13 +399,17 @@
         return group;
     }
 
+    // Drag state for annotation labels
+    let draggedAnnotation = null;
+    let dragOffset = { x: 0, y: 0 };
+
     function createAnnotationMarkers(year) {
         const group = document.createElementNS(SVG_NS, 'g');
         group.setAttribute('class', 'annotation-markers');
         group.setAttribute('id', 'annotation-markers');
 
         const totalDays = getDaysInYear(year);
-        const LABEL_RADIUS = OUTER_RADIUS + 45;
+        const DEFAULT_LABEL_RADIUS = OUTER_RADIUS + 25;
 
         for (const [dateKey, annList] of Object.entries(annotations)) {
             if (!annList || annList.length === 0) continue;
@@ -383,51 +422,61 @@
             dayOfYear += day;
 
             const angle = dateToAngle(dayOfYear - 0.5, totalDays);
-            const innerPos = polarToCartesian(angle, INNER_RADIUS);
-            const beforeNumPos = polarToCartesian(angle, (INNER_RADIUS + OUTER_RADIUS) / 2 - 8);
-            const afterNumPos = polarToCartesian(angle, (INNER_RADIUS + OUTER_RADIUS) / 2 + 8);
-            const outerPos = polarToCartesian(angle, LABEL_RADIUS);
-
-            // Line segment before the number
-            const line1 = document.createElementNS(SVG_NS, 'line');
-            line1.setAttribute('x1', innerPos.x);
-            line1.setAttribute('y1', innerPos.y);
-            line1.setAttribute('x2', beforeNumPos.x);
-            line1.setAttribute('y2', beforeNumPos.y);
-            line1.setAttribute('class', 'annotation-line');
-            group.appendChild(line1);
-
-            // Line segment after the number
-            const line2 = document.createElementNS(SVG_NS, 'line');
-            line2.setAttribute('x1', afterNumPos.x);
-            line2.setAttribute('y1', afterNumPos.y);
-            line2.setAttribute('x2', outerPos.x);
-            line2.setAttribute('y2', outerPos.y);
-            line2.setAttribute('class', 'annotation-line');
-            group.appendChild(line2);
+            const outerEdgePos = polarToCartesian(angle, OUTER_RADIUS);
 
             // Format date string (e.g., "Jan 6")
             const monthAbbr = MONTHS[month - 1].substring(0, 3);
             const dateLabel = `${monthAbbr} ${day}`;
 
-            // Create text for each annotation
+            // Create text and line for each annotation
             annList.forEach((annotation, index) => {
-                const textRadius = LABEL_RADIUS + (index * 12);
-                const textPos = polarToCartesian(angle, textRadius);
+                // Get stored position or calculate default
+                let textX, textY;
+                if (typeof annotation === 'object' && annotation.x !== undefined && annotation.y !== undefined) {
+                    textX = annotation.x;
+                    textY = annotation.y;
+                } else {
+                    const textRadius = DEFAULT_LABEL_RADIUS + (index * 12);
+                    const textPos = polarToCartesian(angle, textRadius);
+                    textX = textPos.x;
+                    textY = textPos.y;
+                }
+
+                // Get color (handle both old string format and new object format)
+                const color = (typeof annotation === 'object' && annotation.color) ? annotation.color : DEFAULT_COLOR;
+
+                // Determine line start point based on text position (inside or outside)
+                const textDist = Math.sqrt(textX * textX + textY * textY);
+                const isInside = textDist < INNER_RADIUS;
+                const lineStartPos = isInside ? polarToCartesian(angle, INNER_RADIUS) : outerEdgePos;
+
+                // Line connecting to event text
+                const line = document.createElementNS(SVG_NS, 'line');
+                line.setAttribute('x1', lineStartPos.x);
+                line.setAttribute('y1', lineStartPos.y);
+                line.setAttribute('x2', textX);
+                line.setAttribute('y2', textY);
+                line.setAttribute('class', 'annotation-line');
+                line.setAttribute('data-date-key', dateKey);
+                line.setAttribute('data-index', index);
+                line.setAttribute('data-angle', angle);
+                line.style.stroke = color;
+                group.appendChild(line);
 
                 const text = document.createElementNS(SVG_NS, 'text');
-                text.setAttribute('x', textPos.x);
-                text.setAttribute('y', textPos.y);
+                text.setAttribute('x', textX);
+                text.setAttribute('y', textY);
                 text.setAttribute('class', 'annotation-text');
                 text.setAttribute('dominant-baseline', 'middle');
+                text.setAttribute('data-date-key', dateKey);
+                text.setAttribute('data-index', index);
+                text.style.fill = color;
 
-                // Determine text anchor based on position (left/right side of circle)
-                if (angle > -90 && angle < 90) {
+                // Determine text anchor based on position (left/right side)
+                if (textX > 0) {
                     text.setAttribute('text-anchor', 'start');
-                    text.setAttribute('x', textPos.x + 4);
                 } else {
                     text.setAttribute('text-anchor', 'end');
-                    text.setAttribute('x', textPos.x - 4);
                 }
 
                 // Get title (handle both old string format and new object format)
@@ -440,11 +489,123 @@
                     text.textContent = title;
                 }
 
+                // Make draggable
+                text.style.cursor = 'grab';
+                text.addEventListener('mousedown', startAnnotationDrag);
+
                 group.appendChild(text);
             });
         }
 
         return group;
+    }
+
+    function startAnnotationDrag(e) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const text = e.target;
+        const pt = svg.createSVGPoint();
+        pt.x = e.clientX;
+        pt.y = e.clientY;
+        const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+
+        draggedAnnotation = {
+            element: text,
+            dateKey: text.getAttribute('data-date-key'),
+            index: parseInt(text.getAttribute('data-index'))
+        };
+        dragOffset = {
+            x: svgP.x - parseFloat(text.getAttribute('x')),
+            y: svgP.y - parseFloat(text.getAttribute('y'))
+        };
+
+        text.style.cursor = 'grabbing';
+        document.addEventListener('mousemove', dragAnnotation);
+        document.addEventListener('mouseup', endAnnotationDrag);
+    }
+
+    function dragAnnotation(e) {
+        if (!draggedAnnotation) return;
+
+        const pt = svg.createSVGPoint();
+        pt.x = e.clientX;
+        pt.y = e.clientY;
+        const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+
+        let newX = svgP.x - dragOffset.x;
+        let newY = svgP.y - dragOffset.y;
+
+        // Constrain: not on date tiles (between INNER_RADIUS and OUTER_RADIUS)
+        const distFromCenter = Math.sqrt(newX * newX + newY * newY);
+        if (distFromCenter > INNER_RADIUS && distFromCenter < OUTER_RADIUS) {
+            // Push to nearest valid position (inside or outside the ring)
+            const midRing = (INNER_RADIUS + OUTER_RADIUS) / 2;
+            const targetRadius = distFromCenter < midRing ? CENTER_RADIUS : OUTER_RADIUS + 10;
+            const angle = Math.atan2(newY, newX);
+            newX = Math.cos(angle) * targetRadius;
+            newY = Math.sin(angle) * targetRadius;
+        }
+
+        // Update text position
+        draggedAnnotation.element.setAttribute('x', newX);
+        draggedAnnotation.element.setAttribute('y', newY);
+
+        // Update text anchor based on position
+        if (newX > 0) {
+            draggedAnnotation.element.setAttribute('text-anchor', 'start');
+        } else {
+            draggedAnnotation.element.setAttribute('text-anchor', 'end');
+        }
+
+        // Update corresponding line
+        const line = document.querySelector(
+            `.annotation-line[data-date-key="${draggedAnnotation.dateKey}"][data-index="${draggedAnnotation.index}"]`
+        );
+        if (line) {
+            // Update line end point
+            line.setAttribute('x2', newX);
+            line.setAttribute('y2', newY);
+
+            // Update line start point based on whether text is inside or outside
+            const textDist = Math.sqrt(newX * newX + newY * newY);
+            const isInside = textDist < INNER_RADIUS;
+            const angle = parseFloat(line.getAttribute('data-angle'));
+            const lineStartRadius = isInside ? INNER_RADIUS : OUTER_RADIUS;
+            const lineStartPos = polarToCartesian(angle, lineStartRadius);
+            line.setAttribute('x1', lineStartPos.x);
+            line.setAttribute('y1', lineStartPos.y);
+        }
+    }
+
+    function endAnnotationDrag(e) {
+        if (!draggedAnnotation) return;
+
+        const newX = parseFloat(draggedAnnotation.element.getAttribute('x'));
+        const newY = parseFloat(draggedAnnotation.element.getAttribute('y'));
+
+        // Save position to annotation data
+        const dateKey = draggedAnnotation.dateKey;
+        const index = draggedAnnotation.index;
+        const annotation = annotations[dateKey][index];
+
+        if (typeof annotation === 'string') {
+            // Convert string to object format
+            annotations[dateKey][index] = { title: annotation, x: newX, y: newY };
+        } else {
+            annotation.x = newX;
+            annotation.y = newY;
+        }
+
+        // Save to storage
+        if (!currentUser) {
+            saveAnnotationsLocal();
+        }
+
+        draggedAnnotation.element.style.cursor = 'grab';
+        draggedAnnotation = null;
+        document.removeEventListener('mousemove', dragAnnotation);
+        document.removeEventListener('mouseup', endAnnotationDrag);
     }
 
     function createCenterText(year) {
@@ -547,6 +708,12 @@
 
         renderExistingAnnotations(dateKey, existing);
 
+        // Reset color picker to default
+        selectedColor = DEFAULT_COLOR;
+        document.querySelectorAll('.color-option').forEach(opt => {
+            opt.classList.toggle('selected', opt.getAttribute('data-color') === DEFAULT_COLOR);
+        });
+
         annotationInput.value = '';
         modal.style.display = 'flex';
         annotationInput.focus();
@@ -612,11 +779,11 @@
             // Save to API
             const event = await createEventAPI(selectedDate.month + 1, selectedDate.day, text);
             if (event) {
-                annotations[dateKey].push({ id: event.id, title: event.title });
+                annotations[dateKey].push({ id: event.id, title: event.title, color: selectedColor });
             }
         } else {
-            // Save locally
-            annotations[dateKey].push(text);
+            // Save locally with color
+            annotations[dateKey].push({ title: text, color: selectedColor });
             saveAnnotationsLocal();
         }
 
@@ -636,6 +803,35 @@
             oldMarkers.remove();
         }
         svg.appendChild(createAnnotationMarkers(new Date().getFullYear()));
+        updateDaySegmentHighlights();
+    }
+
+    function updateDaySegmentHighlights() {
+        // Clear all existing highlights and inline styles
+        document.querySelectorAll('.day-segment.has-event').forEach(el => {
+            el.classList.remove('has-event');
+            el.style.fill = '';
+        });
+
+        // Add highlight to days with events
+        for (const dateKey of Object.keys(annotations)) {
+            if (!annotations[dateKey] || annotations[dateKey].length === 0) continue;
+
+            const [month, day] = dateKey.split('-').map(Number);
+            // Find the day segment (data-month is 0-indexed, dateKey month is 1-indexed)
+            const segment = document.querySelector(
+                `.day-segment[data-month="${month - 1}"][data-day="${day}"]`
+            );
+            if (segment) {
+                segment.classList.add('has-event');
+                // Use the first event's color for the tile
+                const firstAnnotation = annotations[dateKey][0];
+                const color = (typeof firstAnnotation === 'object' && firstAnnotation.color)
+                    ? firstAnnotation.color
+                    : DEFAULT_COLOR;
+                segment.style.fill = color;
+            }
+        }
     }
 
     function saveAnnotationsLocal() {
@@ -654,60 +850,85 @@
         }
     }
 
-    function zoomToPoint(x, y) {
-        isZoomed = true;
-        zoomCenter = { x, y };
-        const size = 700 / ZOOM_LEVEL;
-        const viewBoxX = x - size / 2;
-        const viewBoxY = y - size / 2;
-        svg.setAttribute('viewBox', `${viewBoxX} ${viewBoxY} ${size} ${size}`);
-        svg.classList.add('zoomed');
-    }
-
-    function zoomOut() {
-        isZoomed = false;
-        svg.setAttribute('viewBox', '-350 -350 700 700');
-        svg.classList.remove('zoomed');
-    }
-
-    function handleZoomClick(e) {
-        // Don't zoom if we just finished panning
-        if (e.defaultPrevented) return;
-
-        // Get click position in SVG coordinates
-        const pt = svg.createSVGPoint();
-        pt.x = e.clientX;
-        pt.y = e.clientY;
-        const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
-
-        // Check if clicking near center (to zoom out)
-        const distFromCenter = Math.sqrt(svgP.x * svgP.x + svgP.y * svgP.y);
-
-        if (isZoomed) {
-            zoomOut();
-        } else if (distFromCenter > 50) {
-            // Zoom to clicked point (but not if clicking the center text)
-            zoomToPoint(svgP.x, svgP.y);
-        }
-    }
-
     function getViewBox() {
         const vb = svg.getAttribute('viewBox').split(' ').map(Number);
         return { x: vb[0], y: vb[1], w: vb[2], h: vb[3] };
     }
 
+    function setViewBox(x, y, w, h) {
+        svg.setAttribute('viewBox', `${x} ${y} ${w} ${h}`);
+        currentZoom = 700 / w;
+        svg.classList.toggle('zoomed', currentZoom > 1.1);
+        updateDynamicFontSizes();
+    }
+
+    function updateDynamicFontSizes() {
+        // Day numbers and day of week: same size, scale up with zoom
+        const dayLabelSize = 0.6 * Math.sqrt(currentZoom);
+        document.querySelectorAll('.day-number').forEach(el => {
+            el.style.fontSize = dayLabelSize + 'px';
+        });
+        document.querySelectorAll('.day-of-week').forEach(el => {
+            el.style.fontSize = dayLabelSize + 'px';
+        });
+
+        // Annotation text: scale down with zoom to maintain roughly constant screen size
+        // Base 7px at zoom 1, shrinks to ~3px at zoom 5
+        const annotationSize = 7 / Math.sqrt(currentZoom);
+        document.querySelectorAll('.annotation-text').forEach(el => {
+            el.style.fontSize = annotationSize + 'px';
+        });
+
+        // Month labels: scale down with zoom to maintain roughly constant screen size
+        // Base 10px at zoom 1
+        const monthLabelSize = 10 / Math.sqrt(currentZoom);
+        document.querySelectorAll('.month-label').forEach(el => {
+            el.style.fontSize = monthLabelSize + 'px';
+        });
+    }
+
+    function handleWheel(e) {
+        e.preventDefault();
+
+        // Get cursor position in SVG coordinates before zoom
+        const pt = svg.createSVGPoint();
+        pt.x = e.clientX;
+        pt.y = e.clientY;
+        const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+
+        // Calculate zoom factor (pinch gestures send ctrlKey with wheel)
+        const delta = e.ctrlKey ? e.deltaY * 0.02 : e.deltaY * 0.005;
+        const zoomFactor = Math.exp(-delta);
+        const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, currentZoom * zoomFactor));
+
+        if (newZoom === currentZoom) return;
+
+        const vb = getViewBox();
+        const newSize = 700 / newZoom;
+
+        // Zoom centered on cursor position
+        const cursorRatioX = (svgP.x - vb.x) / vb.w;
+        const cursorRatioY = (svgP.y - vb.y) / vb.h;
+
+        const newX = svgP.x - cursorRatioX * newSize;
+        const newY = svgP.y - cursorRatioY * newSize;
+
+        setViewBox(newX, newY, newSize, newSize);
+    }
+
     function handlePanStart(e) {
-        if (!isZoomed) return;
+        // Only pan with left mouse button, not during day clicks
+        if (e.button !== 0) return;
+
         isPanning = true;
         panStart = { x: e.clientX, y: e.clientY };
         const vb = getViewBox();
         viewBoxStart = { x: vb.x, y: vb.y };
         svg.style.cursor = 'grabbing';
-        e.preventDefault();
     }
 
     function handlePanMove(e) {
-        if (!isPanning || !isZoomed) return;
+        if (!isPanning) return;
 
         const vb = getViewBox();
         const scale = vb.w / svg.clientWidth;
@@ -725,6 +946,10 @@
         }
     }
 
+    function resetZoom() {
+        setViewBox(-350, -350, 700, 700);
+    }
+
     async function init() {
         const year = new Date().getFullYear();
 
@@ -738,6 +963,7 @@
         svg.appendChild(createClockHand(year));
         svg.appendChild(createAnnotationMarkers(year));
         svg.appendChild(createCenterText(year));
+        updateDaySegmentHighlights();
 
         // Auth event listeners
         if (loginBtn) loginBtn.addEventListener('click', handleLogin);
@@ -749,6 +975,15 @@
         // Modal event listeners
         document.getElementById('save-btn').addEventListener('click', saveAnnotation);
         document.getElementById('cancel-btn').addEventListener('click', closeModal);
+
+        // Color picker event listeners
+        document.querySelectorAll('.color-option').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('.color-option').forEach(b => b.classList.remove('selected'));
+                e.target.classList.add('selected');
+                selectedColor = e.target.getAttribute('data-color');
+            });
+        });
 
         modal.addEventListener('click', (e) => {
             if (e.target === modal) closeModal();
@@ -764,10 +999,13 @@
             }
         });
 
-        // Zoom handler - use double-click to zoom
-        svg.addEventListener('dblclick', handleZoomClick);
+        // Zoom handler - pinch/scroll to zoom continuously
+        svg.addEventListener('wheel', handleWheel, { passive: false });
 
-        // Pan handlers - click and drag to pan when zoomed
+        // Double-click to reset zoom
+        svg.addEventListener('dblclick', resetZoom);
+
+        // Pan handlers - click and drag to pan
         svg.addEventListener('mousedown', handlePanStart);
         svg.addEventListener('mousemove', handlePanMove);
         svg.addEventListener('mouseup', handlePanEnd);

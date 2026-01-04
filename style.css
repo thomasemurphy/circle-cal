@@ -104,15 +104,32 @@ body {
     fill: #f5f5f5;
 }
 
+.day-segment.weekend {
+    fill: #f0f0f0;
+}
+
+.day-segment.weekend.even-month {
+    fill: #e8e8e8;
+}
+
 .day-segment:hover,
 .day-segment.hovered {
     fill: #e3f2fd;
 }
 
+.day-segment.has-event {
+    fill: #ff6360;
+}
+
+.day-segment.has-event.even-month {
+    fill: #ff6360;
+}
+
 /* Month ticks */
 .month-tick {
-    stroke: #333;
-    stroke-width: 1.5;
+    stroke: rgba(0, 0, 0, 0.3);
+    stroke-width: 0.75;
+    stroke-linecap: round;
 }
 
 /* Month labels */
@@ -120,8 +137,8 @@ body {
     font-size: 10px;
     font-weight: 500;
     fill: #666;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.3px;
+    transition: font-size 0.1s ease;
 }
 
 /* Clock hand */
@@ -145,27 +162,46 @@ body {
 
 /* Day number labels */
 .day-number {
-    font-size: 3px;
-    font-weight: 400;
-    fill: #999;
+    font-size: 1.5px;
+    font-weight: 500;
+    fill: #bbb;
     pointer-events: none;
+    transition: font-size 0.1s ease;
 }
 
 #calendar.zoomed .day-number {
-    font-size: 4px;
-    fill: #666;
+    fill: #888;
+}
+
+/* Day of week labels */
+.day-of-week {
+    font-size: 1.5px;
+    font-weight: 500;
+    fill: #bbb;
+    pointer-events: none;
+    transition: font-size 0.1s ease;
+}
+
+#calendar.zoomed .day-of-week {
+    fill: #888;
 }
 
 /* Annotation markers */
 .annotation-line {
-    stroke: #bbb;
-    stroke-width: 0.3;
+    stroke: #ff6360;
+    stroke-width: 0.5;
 }
 
 .annotation-text {
     font-size: 7px;
-    fill: #333;
+    fill: #ff6360;
     font-weight: 400;
+    transition: font-size 0.1s ease, filter 0.15s ease;
+    cursor: grab;
+}
+
+.annotation-text:hover {
+    filter: brightness(0.85);
 }
 
 /* Tooltip */
@@ -259,6 +295,40 @@ body {
 #annotation-input:focus {
     outline: none;
     border-color: #1976d2;
+}
+
+.color-picker {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.color-label {
+    font-size: 14px;
+    color: #666;
+}
+
+.color-options {
+    display: flex;
+    gap: 6px;
+}
+
+.color-option {
+    width: 24px;
+    height: 24px;
+    border: 2px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, transform 0.1s ease;
+}
+
+.color-option:hover {
+    transform: scale(1.1);
+}
+
+.color-option.selected {
+    border-color: #333;
 }
 
 .modal-buttons {
