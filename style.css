@@ -160,13 +160,13 @@ body {
 
 /* Date/time text in center */
 .center-date {
-    font-size: 12px;
+    font-size: 8px;
     font-weight: 500;
     fill: #333;
 }
 
 .center-time {
-    font-size: 14px;
+    font-size: 8px;
     font-weight: 300;
     fill: #666;
 }
@@ -313,11 +313,6 @@ body {
     align-items: center;
     gap: 10px;
     margin-top: 12px;
-}
-
-.color-label {
-    font-size: 14px;
-    color: #666;
 }
 
 .color-options {
