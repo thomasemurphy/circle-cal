@@ -240,8 +240,15 @@
                 Z`;
     }
 
-    function formatDate(month, day) {
-        return `${MONTHS[month]} ${day}`;
+    function formatDate(month, day, includeWeekday = false) {
+        const dateStr = `${MONTHS[month]} ${day}`;
+        if (includeWeekday) {
+            const year = new Date().getFullYear();
+            const date = new Date(year, month, day);
+            const weekday = date.toLocaleDateString('en-US', { weekday: 'long' });
+            return `${weekday}, ${dateStr}`;
+        }
+        return dateStr;
     }
 
     function getDateKey(month, day) {
@@ -724,7 +731,7 @@
 
         editingAnnotation = { dateKey, index };
         selectedDate = { month: month - 1, day };
-        modalDate.textContent = formatDate(month - 1, day);
+        modalDate.textContent = formatDate(month - 1, day, true);
 
         // Hide existing annotations list when editing
         existingAnnotations.innerHTML = '';
@@ -824,39 +831,43 @@
             0 >= vb.y && 0 <= vb.y + vb.h
         );
 
+        const dateText = group.querySelector('.center-date');
+        const timeText = group.querySelector('.center-time');
+        const baseTextSize = 14;
+        const scaledTextSize = baseTextSize / currentZoom;
+
         let posX, posY;
         if (originVisible) {
             // Keep at original center position
             posX = 0;
             posY = 0;
+
+            // Center-aligned when in the middle
+            if (dateText) dateText.setAttribute('text-anchor', 'middle');
+            if (timeText) timeText.setAttribute('text-anchor', 'middle');
+
+            const yOffset = 8 / currentZoom;
+            if (dateText) dateText.setAttribute('y', -yOffset);
+            if (timeText) timeText.setAttribute('y', yOffset);
         } else {
-            // Move to lower center of viewport with some padding
-            const padding = 20 / currentZoom;
-            posX = vb.x + vb.w / 2;  // Center horizontally
-            posY = vb.y + vb.h - padding;  // Bottom with padding
+            // Move to upper-left corner of viewport
+            const padding = 10 / currentZoom;
+            posX = vb.x + padding;
+            posY = vb.y + padding;
+
+            // Left-aligned when pinned to top-left
+            if (dateText) dateText.setAttribute('text-anchor', 'start');
+            if (timeText) timeText.setAttribute('text-anchor', 'start');
+
+            const lineHeight = scaledTextSize * 1.4;
+            if (dateText) dateText.setAttribute('y', lineHeight);
+            if (timeText) timeText.setAttribute('y', lineHeight * 2);
         }
 
         group.setAttribute('transform', `translate(${posX}, ${posY})`);
 
-        // Scale font size inversely with zoom to maintain constant screen size
-        const dateText = group.querySelector('.center-date');
-        const timeText = group.querySelector('.center-time');
-        const baseDateSize = 12;
-        const baseTimeSize = 14;
-        const scaledDateSize = baseDateSize / currentZoom;
-        const scaledTimeSize = baseTimeSize / currentZoom;
-        const yOffset = 10 / currentZoom;
-
-        if (dateText) {
-            dateText.setAttribute('y', -yOffset);
-            dateText.style.fontSize = scaledDateSize + 'px';
-            dateText.setAttribute('text-anchor', 'middle');
-        }
-        if (timeText) {
-            timeText.setAttribute('y', yOffset);
-            timeText.style.fontSize = scaledTimeSize + 'px';
-            timeText.setAttribute('text-anchor', 'middle');
-        }
+        if (dateText) dateText.style.fontSize = scaledTextSize + 'px';
+        if (timeText) timeText.style.fontSize = scaledTextSize + 'px';
     }
 
     function initLabeler() {
@@ -1155,7 +1166,7 @@
         } else {
             // Single day
             selectedEndDate = null;
-            modalDate.textContent = formatDate(selectedDate.month, selectedDate.day);
+            modalDate.textContent = formatDate(selectedDate.month, selectedDate.day, true);
         }
 
         // For new events, don't show existing (could be complex with ranges)
