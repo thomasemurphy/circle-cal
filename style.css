@@ -127,6 +127,15 @@ body {
     filter: brightness(0.88);
 }
 
+/* Event subsegments for multi-event days */
+.event-subsegment {
+    transition: filter 0.15s ease;
+}
+
+.event-subsegment:hover {
+    filter: brightness(0.85);
+}
+
 /* Month ticks */
 .month-tick {
     stroke: rgba(0, 0, 0, 0.5);
@@ -191,7 +200,7 @@ body {
 /* Annotation markers */
 .annotation-line {
     stroke: #ccc;
-    stroke-width: 0.3;
+    stroke-width: 0.15;
 }
 
 .annotation-text {

@@ -34,6 +34,9 @@
     let panStart = { x: 0, y: 0 };
     let viewBoxStart = { x: 0, y: 0 };
 
+    // Label positioning
+    let labelData = [];
+
     const svg = document.getElementById('calendar');
     const tooltip = document.getElementById('tooltip');
     const modal = document.getElementById('modal');
@@ -249,6 +252,17 @@
         const group = document.createElementNS(SVG_NS, 'g');
         group.setAttribute('class', 'day-segments');
 
+        // Create sub-groups to control rendering order: paths -> subsegments -> labels
+        const pathsGroup = document.createElementNS(SVG_NS, 'g');
+        pathsGroup.setAttribute('class', 'day-segment-paths');
+
+        const subsegmentsGroup = document.createElementNS(SVG_NS, 'g');
+        subsegmentsGroup.setAttribute('class', 'event-subsegments');
+        subsegmentsGroup.setAttribute('id', 'event-subsegments');
+
+        const labelsGroup = document.createElementNS(SVG_NS, 'g');
+        labelsGroup.setAttribute('class', 'day-labels');
+
         const totalDays = getDaysInYear(year);
         const anglePerDay = 360 / totalDays;
 
@@ -286,7 +300,7 @@
                 path.addEventListener('mouseenter', handleDayRangeMove);
                 path.addEventListener('mouseup', handleDayMouseUp);
 
-                group.appendChild(path);
+                pathsGroup.appendChild(path);
 
                 // Add day of week and day number labels
                 const midAngle = (startAngle + endAngle) / 2;
@@ -303,7 +317,7 @@
                 dowText.setAttribute('text-anchor', 'middle');
                 dowText.setAttribute('dominant-baseline', 'middle');
                 dowText.textContent = DOW_ABBREV[dayOfWeek];
-                group.appendChild(dowText);
+                labelsGroup.appendChild(dowText);
 
                 // Day number
                 const dayNumPos = polarToCartesian(midAngle, dayNumberRadius);
@@ -315,11 +329,15 @@
                 text.setAttribute('dominant-baseline', 'middle');
                 text.textContent = day;
 
-                group.appendChild(text);
+                labelsGroup.appendChild(text);
 
                 dayOfYear++;
             }
         }
+
+        group.appendChild(pathsGroup);
+        group.appendChild(subsegmentsGroup);
+        group.appendChild(labelsGroup);
 
         return group;
     }
@@ -525,6 +543,9 @@
                 text.setAttribute('dominant-baseline', 'middle');
                 text.setAttribute('data-date-key', dateKey);
                 text.setAttribute('data-index', index);
+                text.setAttribute('data-original-x', textX);
+                text.setAttribute('data-original-y', textY);
+                text.setAttribute('data-angle', angle);
                 text.style.fill = color;
 
                 // Determine text anchor based on position (left/right side)
@@ -605,9 +626,11 @@
             newY = Math.sin(angle) * targetRadius;
         }
 
-        // Update text position
+        // Update text position and original position (for viewport following)
         draggedAnnotation.element.setAttribute('x', newX);
         draggedAnnotation.element.setAttribute('y', newY);
+        draggedAnnotation.element.setAttribute('data-original-x', newX);
+        draggedAnnotation.element.setAttribute('data-original-y', newY);
 
         // Update text anchor based on position
         if (newX > 0) {
@@ -675,6 +698,16 @@
         // Save to storage
         if (!currentUser) {
             saveAnnotationsLocal();
+        }
+
+        // Update label data with new position
+        const nodeId = `${dateKey}-${index}`;
+        const node = labelData.find(n => n.id === nodeId);
+        if (node) {
+            node.x = newX;
+            node.y = newY;
+            node.originalX = newX;
+            node.originalY = newY;
         }
 
         draggedAnnotation.element.style.cursor = 'grab';
@@ -824,6 +857,204 @@
             timeText.style.fontSize = scaledTimeSize + 'px';
             timeText.setAttribute('text-anchor', 'middle');
         }
+    }
+
+    function initLabeler() {
+        // Build label data from current annotation text elements
+        labelData = [];
+        const texts = document.querySelectorAll('.annotation-text');
+
+        texts.forEach(text => {
+            const dateKey = text.getAttribute('data-date-key');
+            const index = text.getAttribute('data-index');
+            const line = document.querySelector(`.annotation-line[data-date-key="${dateKey}"][data-index="${index}"]`);
+
+            const originalX = parseFloat(text.getAttribute('data-original-x'));
+            const originalY = parseFloat(text.getAttribute('data-original-y'));
+            const anchorX = line ? parseFloat(line.getAttribute('x1')) : originalX;
+            const anchorY = line ? parseFloat(line.getAttribute('y1')) : originalY;
+
+            // Estimate text dimensions
+            const bbox = text.getBBox();
+
+            labelData.push({
+                id: `${dateKey}-${index}`,
+                text: text,
+                line: line,
+                x: originalX,
+                y: originalY,
+                width: bbox.width || 50,
+                height: bbox.height || 10,
+                originalX: originalX,
+                originalY: originalY,
+                anchorX: anchorX,
+                anchorY: anchorY
+            });
+        });
+
+        if (labelData.length === 0) return;
+
+        runLabeler();
+    }
+
+    function runLabeler() {
+        if (labelData.length === 0) return;
+
+        const vb = getViewBox();
+
+        // Build arrays for the labeler
+        // Offset coordinates to positive space for the labeler algorithm
+        const offsetX = -vb.x;
+        const offsetY = -vb.y;
+
+        const labels = labelData.map(d => ({
+            x: d.originalX + offsetX,
+            y: d.originalY + offsetY,
+            width: d.width,
+            height: d.height,
+            originalX: d.originalX,
+            originalY: d.originalY
+        }));
+
+        const anchors = labelData.map(d => ({
+            x: d.anchorX + offsetX,
+            y: d.anchorY + offsetY,
+            r: 5
+        }));
+
+        // Run the labeler
+        d3.labeler()
+            .label(labels)
+            .anchor(anchors)
+            .width(vb.w)
+            .height(vb.h)
+            .start(500);
+
+        // Apply results back to labelData (convert back from offset coordinates)
+        labels.forEach((label, i) => {
+            labelData[i].x = label.x - offsetX;
+            labelData[i].y = label.y - offsetY;
+        });
+
+        // Update DOM
+        applyLabelPositions();
+    }
+
+    function applyLabelPositions() {
+        const vb = getViewBox();
+        const padding = 10 / currentZoom;
+
+        labelData.forEach(data => {
+            const { text, line, anchorX, anchorY, x, y } = data;
+            if (!text) return;
+
+            // Check if anchor (tile) is visible
+            let tileVisible = true;
+            if (currentZoom > 1.1) {
+                const margin = OUTER_RADIUS - INNER_RADIUS;
+                tileVisible = (
+                    anchorX >= vb.x - margin && anchorX <= vb.x + vb.w + margin &&
+                    anchorY >= vb.y - margin && anchorY <= vb.y + vb.h + margin
+                );
+            }
+
+            if (!tileVisible) {
+                text.style.display = 'none';
+                if (line) line.style.display = 'none';
+                return;
+            }
+
+            text.style.display = '';
+            if (line) line.style.display = '';
+
+            // Clamp position to viewport if needed
+            let newX = x;
+            let newY = y;
+
+            if (currentZoom > 1.1) {
+                newX = Math.max(vb.x + padding, Math.min(vb.x + vb.w - padding, newX));
+                newY = Math.max(vb.y + padding, Math.min(vb.y + vb.h - padding, newY));
+            }
+
+            text.setAttribute('x', newX);
+            text.setAttribute('y', newY);
+
+            // Update text anchor based on position relative to anchor
+            if (newX > anchorX) {
+                text.setAttribute('text-anchor', 'start');
+            } else {
+                text.setAttribute('text-anchor', 'end');
+            }
+
+            // Update line - connect to closest edge of text bounding box
+            if (line) {
+                const bbox = text.getBBox();
+                const boxLeft = bbox.x;
+                const boxRight = bbox.x + bbox.width;
+                const boxTop = bbox.y;
+                const boxBottom = bbox.y + bbox.height;
+                const boxCenterX = bbox.x + bbox.width / 2;
+                const boxCenterY = bbox.y + bbox.height / 2;
+
+                // Find closest point on rectangle edge to anchor
+                let closestX, closestY;
+
+                // Clamp anchor to box bounds to find closest point
+                const clampedX = Math.max(boxLeft, Math.min(boxRight, anchorX));
+                const clampedY = Math.max(boxTop, Math.min(boxBottom, anchorY));
+
+                // If anchor is inside the box, use center
+                if (anchorX >= boxLeft && anchorX <= boxRight && anchorY >= boxTop && anchorY <= boxBottom) {
+                    closestX = boxCenterX;
+                    closestY = boxCenterY;
+                } else {
+                    // Find which edge to connect to
+                    const distLeft = Math.abs(anchorX - boxLeft);
+                    const distRight = Math.abs(anchorX - boxRight);
+                    const distTop = Math.abs(anchorY - boxTop);
+                    const distBottom = Math.abs(anchorY - boxBottom);
+
+                    // Check if anchor is more to the side or above/below
+                    const minHoriz = Math.min(distLeft, distRight);
+                    const minVert = Math.min(distTop, distBottom);
+
+                    if (anchorX < boxLeft) {
+                        // Anchor is to the left
+                        closestX = boxLeft;
+                        closestY = clampedY;
+                    } else if (anchorX > boxRight) {
+                        // Anchor is to the right
+                        closestX = boxRight;
+                        closestY = clampedY;
+                    } else if (anchorY < boxTop) {
+                        // Anchor is above
+                        closestX = clampedX;
+                        closestY = boxTop;
+                    } else {
+                        // Anchor is below
+                        closestX = clampedX;
+                        closestY = boxBottom;
+                    }
+                }
+
+                // Add small gap from the edge
+                const lineGap = 2;
+                const dx = closestX - anchorX;
+                const dy = closestY - anchorY;
+                const lineLen = Math.sqrt(dx * dx + dy * dy);
+                const lineEndX = lineLen > lineGap ? closestX - (dx / lineLen) * lineGap : closestX;
+                const lineEndY = lineLen > lineGap ? closestY - (dy / lineLen) * lineGap : closestY;
+
+                line.setAttribute('x2', lineEndX);
+                line.setAttribute('y2', lineEndY);
+            }
+        });
+    }
+
+    function updateEventTextPositions() {
+        // Only update visibility and clamping during pan/zoom
+        // Don't re-run labeler - that only happens when annotations change
+        applyLabelPositions();
     }
 
     function handleDayHover(e) {
@@ -1129,10 +1360,12 @@
         svg.appendChild(createAnnotationMarkers(new Date().getFullYear()));
         updateDaySegmentHighlights();
         updateDynamicFontSizes();
+        initLabeler();
     }
 
     function updateDaySegmentHighlights() {
         const year = new Date().getFullYear();
+        const totalDays = getDaysInYear(year);
 
         // Clear all existing highlights and inline styles
         document.querySelectorAll('.day-segment.has-event').forEach(el => {
@@ -1140,46 +1373,150 @@
             el.style.fill = '';
         });
 
-        // Add highlight to days with events
+        // Remove any existing event sub-segments
+        document.querySelectorAll('.event-subsegment').forEach(el => el.remove());
+
+        // Build a map of day -> list of {color, title} for all events
+        const dayEventsMap = {}; // key: "month-day" (0-indexed month), value: [{color, title}]
+
         for (const dateKey of Object.keys(annotations)) {
             if (!annotations[dateKey] || annotations[dateKey].length === 0) continue;
 
             const [month, day] = dateKey.split('-').map(Number);
             const startMonth = month - 1; // Convert to 0-indexed
 
-            // Process each annotation for this date
             annotations[dateKey].forEach(annotation => {
                 const color = (typeof annotation === 'object' && annotation.color)
                     ? annotation.color
                     : DEFAULT_COLOR;
+                const title = typeof annotation === 'string' ? annotation : annotation.title;
 
                 // Check for multi-day event
                 const hasEndDate = typeof annotation === 'object' && annotation.endMonth !== undefined;
 
                 if (hasEndDate) {
-                    // Highlight all days in the range
+                    // Add to all days in the range
                     const startDoy = getDayOfYearFromMonthDay(startMonth, day, year);
                     const endDoy = getDayOfYearFromMonthDay(annotation.endMonth, annotation.endDay, year);
 
-                    document.querySelectorAll('.day-segment').forEach(segment => {
-                        const doy = parseInt(segment.getAttribute('data-day-of-year'));
-                        if (doy >= startDoy && doy <= endDoy) {
-                            segment.classList.add('has-event');
-                            segment.style.fill = color;
+                    // Iterate through days in range
+                    let currentDoy = startDoy;
+                    let currentMonth = startMonth;
+                    let currentDay = day;
+
+                    while (currentDoy <= endDoy) {
+                        const dayKey = `${currentMonth}-${currentDay}`;
+                        if (!dayEventsMap[dayKey]) dayEventsMap[dayKey] = [];
+                        dayEventsMap[dayKey].push({ color, title });
+
+                        // Move to next day
+                        currentDay++;
+                        if (currentDay > getDaysInMonth(currentMonth, year)) {
+                            currentDay = 1;
+                            currentMonth++;
                         }
-                    });
+                        currentDoy++;
+                    }
                 } else {
                     // Single day event
-                    const segment = document.querySelector(
-                        `.day-segment[data-month="${startMonth}"][data-day="${day}"]`
-                    );
-                    if (segment) {
-                        segment.classList.add('has-event');
-                        segment.style.fill = color;
-                    }
+                    const dayKey = `${startMonth}-${day}`;
+                    if (!dayEventsMap[dayKey]) dayEventsMap[dayKey] = [];
+                    dayEventsMap[dayKey].push({ color, title });
                 }
             });
         }
+
+        // Now apply highlights based on the map
+        const subsegmentsGroup = document.getElementById('event-subsegments');
+
+        for (const [dayKey, eventsList] of Object.entries(dayEventsMap)) {
+            const [monthIdx, dayNum] = dayKey.split('-').map(Number);
+
+            const segment = document.querySelector(
+                `.day-segment[data-month="${monthIdx}"][data-day="${dayNum}"]`
+            );
+            if (!segment) continue;
+
+            segment.classList.add('has-event');
+
+            // Get unique colors while preserving order
+            const uniqueColors = [];
+            const colorToTitles = {};
+            eventsList.forEach(evt => {
+                if (!colorToTitles[evt.color]) {
+                    colorToTitles[evt.color] = [];
+                    uniqueColors.push(evt.color);
+                }
+                colorToTitles[evt.color].push(evt.title);
+            });
+
+            if (uniqueColors.length === 1) {
+                // Single color - just set the fill
+                segment.style.fill = uniqueColors[0];
+            } else {
+                // Multiple colors - create radial sub-segments
+                segment.style.fill = 'transparent';
+
+                const dayOfYear = parseInt(segment.getAttribute('data-day-of-year'));
+                const startAngle = dateToAngle(dayOfYear - 1, totalDays);
+                const endAngle = dateToAngle(dayOfYear, totalDays);
+
+                // Split the arc radially (from inner to outer) into segments
+                const numColors = uniqueColors.length;
+                const radiusStep = (OUTER_RADIUS - INNER_RADIUS) / numColors;
+
+                uniqueColors.forEach((color, i) => {
+                    const innerR = INNER_RADIUS + i * radiusStep;
+                    const outerR = INNER_RADIUS + (i + 1) * radiusStep;
+
+                    const subPath = document.createElementNS(SVG_NS, 'path');
+                    subPath.setAttribute('d', createArcPath(startAngle, endAngle, innerR, outerR));
+                    subPath.setAttribute('class', 'event-subsegment');
+                    subPath.setAttribute('data-month', monthIdx);
+                    subPath.setAttribute('data-day', dayNum);
+                    subPath.setAttribute('data-color', color);
+                    subPath.setAttribute('data-titles', colorToTitles[color].join(', '));
+                    subPath.style.fill = color;
+                    subPath.style.stroke = '#e0e0e0';
+                    subPath.style.strokeWidth = '0.05';
+                    subPath.style.cursor = 'pointer';
+
+                    // Add hover handlers for tooltip
+                    subPath.addEventListener('mouseenter', handleSubsegmentHover);
+                    subPath.addEventListener('mouseleave', handleSubsegmentLeave);
+                    subPath.addEventListener('mousedown', handleDayMouseDown);
+                    subPath.addEventListener('mouseenter', handleDayRangeMove);
+                    subPath.addEventListener('mouseup', handleDayMouseUp);
+
+                    subsegmentsGroup.appendChild(subPath);
+                });
+            }
+        }
+    }
+
+    function handleSubsegmentHover(e) {
+        const titles = e.target.getAttribute('data-titles');
+        const month = parseInt(e.target.getAttribute('data-month'));
+        const day = parseInt(e.target.getAttribute('data-day'));
+
+        const text = `${formatDate(month, day)}: ${titles}`;
+
+        tooltip.textContent = text;
+        tooltip.style.display = 'block';
+        tooltip.style.left = (e.clientX + 10) + 'px';
+        tooltip.style.top = (e.clientY + 10) + 'px';
+
+        e.target.addEventListener('mousemove', handleSubsegmentMove);
+    }
+
+    function handleSubsegmentMove(e) {
+        tooltip.style.left = (e.clientX + 10) + 'px';
+        tooltip.style.top = (e.clientY + 10) + 'px';
+    }
+
+    function handleSubsegmentLeave(e) {
+        tooltip.style.display = 'none';
+        e.target.removeEventListener('mousemove', handleSubsegmentMove);
     }
 
     function saveAnnotationsLocal() {
@@ -1253,6 +1590,7 @@
         svg.classList.toggle('zoomed', currentZoom > 1.1);
         updateDynamicFontSizes();
         updateCenterTextPosition();
+        updateEventTextPositions();
     }
 
     function updateDynamicFontSizes() {
@@ -1334,6 +1672,7 @@
 
         svg.setAttribute('viewBox', `${viewBoxStart.x - dx} ${viewBoxStart.y - dy} ${vb.w} ${vb.h}`);
         updateCenterTextPosition();
+        updateEventTextPositions();
     }
 
     function handlePanEnd(e) {
@@ -1361,6 +1700,7 @@
         svg.appendChild(createAnnotationMarkers(year));
         svg.appendChild(createCenterText(year));
         updateDaySegmentHighlights();
+        initLabeler();
 
         // Auth event listeners
         if (loginBtn) loginBtn.addEventListener('click', handleLogin);

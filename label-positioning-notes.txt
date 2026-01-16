@@ -1,0 +1,23 @@
+Label Positioning Package Evaluation
+=====================================
+
+1. d3-force-labels (d3-force with forceCollide)
+   - Status: Tested
+   - Pros: Labels avoid each other well
+   - Cons: Latency issue when clicking and dragging event text
+   - Notes: Uses continuous force simulation which may be causing the drag lag
+
+2. D3-Labeler (simulated annealing)
+   - Status: Tested
+   - Pros: No latency issue when dragging (unlike d3-force-labels)
+   - Cons: Labels "jump" after scroll completes (due to debounced recalculation)
+   - URL: https://github.com/tinker10/D3-Labeler
+
+3. d3-annotation
+   - Status: Not tested
+   - Description: Full annotation system with built-in connector types
+   - URL: https://d3-annotation.susielu.com/
+
+4. Custom implementation (quadtree-based)
+   - Status: Not tested
+   - Description: Use D3 quadtree for collision detection without force simulation
