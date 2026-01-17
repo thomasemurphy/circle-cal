@@ -28,7 +28,14 @@ app = FastAPI(
 )
 
 # Session middleware for OAuth
-app.add_middleware(SessionMiddleware, secret_key=settings.jwt_secret)
+# Use https_only=True in production for secure cookies
+is_production = settings.frontend_url.startswith("https")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.jwt_secret,
+    https_only=is_production,
+    same_site="lax",
+)
 
 # CORS
 app.add_middleware(
