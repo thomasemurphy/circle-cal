@@ -1488,9 +1488,6 @@
                     subPath.setAttribute('data-color', color);
                     subPath.setAttribute('data-titles', colorToTitles[color].join(', '));
                     subPath.style.fill = color;
-                    subPath.style.stroke = '#e0e0e0';
-                    subPath.style.strokeWidth = '0.05';
-                    subPath.style.cursor = 'pointer';
 
                     // Add hover handlers for tooltip
                     subPath.addEventListener('mouseenter', handleSubsegmentHover);
