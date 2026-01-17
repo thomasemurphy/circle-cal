@@ -1409,6 +1409,8 @@
                     // Add to all days in the range
                     const startDoy = getDayOfYearFromMonthDay(startMonth, day, year);
                     const endDoy = getDayOfYearFromMonthDay(annotation.endMonth, annotation.endDay, year);
+                    const duration = endDoy - startDoy + 1;
+                    const faded = duration > 4;
 
                     // Iterate through days in range
                     let currentDoy = startDoy;
@@ -1418,7 +1420,7 @@
                     while (currentDoy <= endDoy) {
                         const dayKey = `${currentMonth}-${currentDay}`;
                         if (!dayEventsMap[dayKey]) dayEventsMap[dayKey] = [];
-                        dayEventsMap[dayKey].push({ color, title });
+                        dayEventsMap[dayKey].push({ color, title, faded });
 
                         // Move to next day
                         currentDay++;
@@ -1432,7 +1434,7 @@
                     // Single day event
                     const dayKey = `${startMonth}-${day}`;
                     if (!dayEventsMap[dayKey]) dayEventsMap[dayKey] = [];
-                    dayEventsMap[dayKey].push({ color, title });
+                    dayEventsMap[dayKey].push({ color, title, faded: false });
                 }
             });
         }
@@ -1450,20 +1452,26 @@
 
             segment.classList.add('has-event');
 
-            // Get unique colors while preserving order
+            // Get unique colors while preserving order, track faded state
             const uniqueColors = [];
             const colorToTitles = {};
+            const colorToFaded = {};
             eventsList.forEach(evt => {
                 if (!colorToTitles[evt.color]) {
                     colorToTitles[evt.color] = [];
+                    colorToFaded[evt.color] = evt.faded;
                     uniqueColors.push(evt.color);
                 }
                 colorToTitles[evt.color].push(evt.title);
+                // If any event with this color is not faded, don't fade it
+                if (!evt.faded) colorToFaded[evt.color] = false;
             });
 
             if (uniqueColors.length === 1) {
                 // Single color - just set the fill
-                segment.style.fill = uniqueColors[0];
+                const color = uniqueColors[0];
+                segment.style.fill = color;
+                segment.style.opacity = colorToFaded[color] ? 0.4 : 1;
             } else {
                 // Multiple colors - create radial sub-segments
                 segment.style.fill = 'transparent';
@@ -1488,6 +1496,7 @@
                     subPath.setAttribute('data-color', color);
                     subPath.setAttribute('data-titles', colorToTitles[color].join(', '));
                     subPath.style.fill = color;
+                    subPath.style.opacity = colorToFaded[color] ? 0.4 : 1;
 
                     // Add hover handlers for tooltip
                     subPath.addEventListener('mouseenter', handleSubsegmentHover);
