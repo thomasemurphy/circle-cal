@@ -25,7 +25,7 @@
     let rangeStartDate = null;
 
     // Zoom state (continuous)
-    const MIN_ZOOM = 1;
+    const MIN_ZOOM = 0.8;
     const MAX_ZOOM = 15;
     let currentZoom = 1;
 
@@ -1727,7 +1727,10 @@
     }
 
     function resetZoom() {
-        setViewBox(-350, -350, 700, 700);
+        // Start at 1.4x zoom for better default view
+        const defaultZoom = 1.4;
+        const defaultSize = 700 / defaultZoom;
+        setViewBox(-defaultSize / 2, -defaultSize / 2, defaultSize, defaultSize);
     }
 
     async function init() {
