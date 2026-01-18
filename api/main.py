@@ -38,12 +38,20 @@ app.add_middleware(
 )
 
 
-# Redirect HTTP to HTTPS in production and add security headers
+# Redirect HTTP to HTTPS and www to non-www in production
 @app.middleware("http")
-async def https_redirect_and_security(request: Request, call_next):
+async def https_and_www_redirect(request: Request, call_next):
     if is_production:
-        # Heroku sets x-forwarded-proto header
+        host = request.headers.get("host", "")
         forwarded_proto = request.headers.get("x-forwarded-proto", "https")
+
+        # Redirect www to non-www
+        if host.startswith("www."):
+            new_host = host[4:]  # Remove "www."
+            url = request.url.replace(scheme="https", netloc=new_host)
+            return RedirectResponse(url=str(url), status_code=301)
+
+        # Redirect HTTP to HTTPS
         if forwarded_proto == "http":
             url = request.url.replace(scheme="https")
             return RedirectResponse(url=str(url), status_code=301)
