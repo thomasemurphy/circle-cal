@@ -31,7 +31,10 @@ async def create_event(
         user_id=user.id,
         month=event_data.month,
         day=event_data.day,
+        end_month=event_data.end_month,
+        end_day=event_data.end_day,
         title=event_data.title,
+        color=event_data.color,
     )
     db.add(event)
     await db.commit()
@@ -58,8 +61,14 @@ async def update_event(
         event.month = event_data.month
     if event_data.day is not None:
         event.day = event_data.day
+    if event_data.end_month is not None:
+        event.end_month = event_data.end_month
+    if event_data.end_day is not None:
+        event.end_day = event_data.end_day
     if event_data.title is not None:
         event.title = event_data.title
+    if event_data.color is not None:
+        event.color = event_data.color
 
     await db.commit()
     await db.refresh(event)

@@ -30,7 +30,10 @@ class Event(Base):
     user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     month = Column(Integer, nullable=False)
     day = Column(Integer, nullable=False)
+    end_month = Column(Integer, nullable=True)  # For multi-day events
+    end_day = Column(Integer, nullable=True)    # For multi-day events
     title = Column(String(500), nullable=False)
+    color = Column(String(7), nullable=True, default="#ff6360")  # Hex color
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

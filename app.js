@@ -130,7 +130,17 @@
             events.forEach(event => {
                 const key = `${event.month}-${event.day}`;
                 if (!annotations[key]) annotations[key] = [];
-                annotations[key].push({ id: event.id, title: event.title });
+                const annotation = {
+                    id: event.id,
+                    title: event.title,
+                    color: event.color || DEFAULT_COLOR,
+                };
+                // Add end date for multi-day events
+                if (event.end_month && event.end_day) {
+                    annotation.endMonth = event.end_month - 1; // Convert to 0-indexed
+                    annotation.endDay = event.end_day;
+                }
+                annotations[key].push(annotation);
             });
             updateAnnotationMarkers();
         } catch (e) {
@@ -138,12 +148,20 @@
         }
     }
 
-    async function createEventAPI(month, day, title) {
+    async function createEventAPI(month, day, title, endMonth, endDay, color) {
         if (!currentUser) return null;
         try {
+            const body = { month, day, title };
+            if (endMonth !== undefined && endDay !== undefined) {
+                body.end_month = endMonth;
+                body.end_day = endDay;
+            }
+            if (color) {
+                body.color = color;
+            }
             const event = await api('/api/events', {
                 method: 'POST',
-                body: JSON.stringify({ month, day, title }),
+                body: JSON.stringify(body),
             });
             return event;
         } catch (e) {
@@ -1312,8 +1330,17 @@
             newAnnotation.y = initialPos.y;
 
             if (currentUser) {
-                // Save to API
-                const event = await createEventAPI(selectedDate.month + 1, selectedDate.day, text);
+                // Save to API with end date and color
+                const endMonth = newAnnotation.endMonth !== undefined ? newAnnotation.endMonth + 1 : undefined;
+                const endDay = newAnnotation.endDay;
+                const event = await createEventAPI(
+                    selectedDate.month + 1,
+                    selectedDate.day,
+                    text,
+                    endMonth,
+                    endDay,
+                    selectedColor
+                );
                 if (event) {
                     newAnnotation.id = event.id;
                     annotations[dateKey].push(newAnnotation);
