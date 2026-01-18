@@ -1,7 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 from contextlib import asynccontextmanager
 import os
@@ -36,6 +36,18 @@ app.add_middleware(
     https_only=is_production,
     same_site="lax",
 )
+
+
+# Redirect HTTP to HTTPS in production
+@app.middleware("http")
+async def redirect_https(request: Request, call_next):
+    if is_production:
+        # Heroku sets x-forwarded-proto header
+        forwarded_proto = request.headers.get("x-forwarded-proto", "https")
+        if forwarded_proto == "http":
+            url = request.url.replace(scheme="https")
+            return RedirectResponse(url=str(url), status_code=301)
+    return await call_next(request)
 
 # CORS
 app.add_middleware(
