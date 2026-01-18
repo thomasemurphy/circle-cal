@@ -38,16 +38,23 @@ app.add_middleware(
 )
 
 
-# Redirect HTTP to HTTPS in production
+# Redirect HTTP to HTTPS in production and add security headers
 @app.middleware("http")
-async def redirect_https(request: Request, call_next):
+async def https_redirect_and_security(request: Request, call_next):
     if is_production:
         # Heroku sets x-forwarded-proto header
         forwarded_proto = request.headers.get("x-forwarded-proto", "https")
         if forwarded_proto == "http":
             url = request.url.replace(scheme="https")
             return RedirectResponse(url=str(url), status_code=301)
-    return await call_next(request)
+
+    response = await call_next(request)
+
+    # Add HSTS header to tell browsers to always use HTTPS
+    if is_production:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+    return response
 
 # CORS
 app.add_middleware(
