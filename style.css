@@ -581,3 +581,190 @@ body {
 #settings-cancel-btn:hover {
     background: var(--border-color);
 }
+
+/* Icon button positioning for badge */
+.icon-btn {
+    position: relative;
+}
+
+/* Notification badge */
+.notification-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    background: #e53935;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+}
+
+/* Friends modal */
+.friends-modal-content {
+    max-width: 400px;
+}
+
+.friends-section {
+    margin-bottom: 20px;
+}
+
+.friends-section:last-of-type {
+    margin-bottom: 16px;
+}
+
+.add-friend-inputs {
+    display: flex;
+    gap: 8px;
+}
+
+.add-friend-inputs input {
+    flex: 1;
+    padding: 8px 10px;
+    border: 1px solid var(--input-border);
+    border-radius: 4px;
+    font-size: 14px;
+    font-family: inherit;
+    background: var(--input-bg);
+    color: var(--text-primary);
+}
+
+.add-friend-inputs input:focus {
+    outline: none;
+    border-color: #1976d2;
+}
+
+.primary-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+    background: #1976d2;
+    color: #fff;
+    transition: background 0.15s ease;
+}
+
+.primary-btn:hover {
+    background: #1565c0;
+}
+
+.primary-btn:disabled {
+    background: var(--button-secondary-bg);
+    color: var(--text-muted);
+    cursor: not-allowed;
+}
+
+.request-status {
+    font-size: 13px;
+    margin-top: 8px;
+    min-height: 20px;
+}
+
+.request-status.success {
+    color: #2e7d32;
+}
+
+.request-status.error {
+    color: #c62828;
+}
+
+[data-theme="dark"] .request-status.success {
+    color: #66bb6a;
+}
+
+[data-theme="dark"] .request-status.error {
+    color: #ef5350;
+}
+
+.friends-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.friends-list li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.friends-list li:last-child {
+    border-bottom: none;
+}
+
+.friend-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.friend-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+}
+
+.friend-name {
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.friend-email {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.friend-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.accept-btn {
+    padding: 4px 12px;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    background: #2e7d32;
+    color: #fff;
+    transition: background 0.15s ease;
+}
+
+.accept-btn:hover {
+    background: #1b5e20;
+}
+
+.decline-btn,
+.remove-btn {
+    padding: 4px 12px;
+    border: 1px solid var(--input-border);
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    background: none;
+    color: var(--text-secondary);
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.decline-btn:hover,
+.remove-btn:hover {
+    border-color: #c62828;
+    color: #c62828;
+}
+
+#friends-close-btn {
+    background: var(--button-secondary-bg);
+    color: var(--text-secondary);
+}
+
+#friends-close-btn:hover {
+    background: var(--border-color);
+}

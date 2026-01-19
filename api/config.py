@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     google_client_secret: str = ""
     jwt_secret: str = "dev-secret-change-in-production"
     frontend_url: str = "http://localhost:8000"
+    sendgrid_api_key: str = ""
 
     @field_validator("database_url", mode="before")
     @classmethod

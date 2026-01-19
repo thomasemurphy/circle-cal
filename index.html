@@ -29,6 +29,15 @@
                 Sign in with Google
             </button>
             <div id="user-info" style="display: none;">
+                <button id="friends-btn" class="icon-btn" title="Friends">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="9" cy="7" r="4"></circle>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                    </svg>
+                    <span id="friend-badge" class="notification-badge" style="display: none;">0</span>
+                </button>
                 <button id="settings-btn" class="icon-btn" title="Settings">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <circle cx="12" cy="12" r="3"></circle>
@@ -105,6 +114,31 @@
                 <div class="modal-buttons">
                     <button id="settings-save-btn">Save</button>
                     <button id="settings-cancel-btn">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="friends-modal" class="modal">
+            <div class="modal-content friends-modal-content">
+                <h3>Friends</h3>
+                <div class="friends-section">
+                    <label class="settings-label">Add a Friend</label>
+                    <div class="add-friend-inputs">
+                        <input type="email" id="friend-email" placeholder="friend@gmail.com" />
+                        <button id="send-request-btn" class="primary-btn">Send</button>
+                    </div>
+                    <p id="friend-request-status" class="request-status"></p>
+                </div>
+                <div class="friends-section" id="pending-requests-section" style="display: none;">
+                    <label class="settings-label">Friend Requests</label>
+                    <ul id="pending-requests-list" class="friends-list"></ul>
+                </div>
+                <div class="friends-section" id="current-friends-section" style="display: none;">
+                    <label class="settings-label">My Friends</label>
+                    <ul id="current-friends-list" class="friends-list"></ul>
+                </div>
+                <div class="modal-buttons">
+                    <button id="friends-close-btn">Close</button>
                 </div>
             </div>
         </div>
