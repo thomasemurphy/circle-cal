@@ -10,6 +10,7 @@ from .config import get_settings
 from .database import init_db
 from .auth import router as auth_router
 from .events import router as events_router
+from .profile import router as profile_router
 
 settings = get_settings()
 
@@ -76,6 +77,7 @@ app.add_middleware(
 # Routers
 app.include_router(auth_router)
 app.include_router(events_router)
+app.include_router(profile_router)
 
 
 @app.get("/health")
