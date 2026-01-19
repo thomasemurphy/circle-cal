@@ -1728,10 +1728,10 @@
 
     function resetZoom() {
         // Start at 1.6x zoom for better default view
-        const defaultZoom = 1.6;
+        const defaultZoom = 1.8;
         const defaultSize = 700 / defaultZoom;
         // Offset Y upward by 10% of the view size
-        const yOffset = defaultSize * 0.1;
+        const yOffset = defaultSize * 0.3;
         setViewBox(-defaultSize / 2, -defaultSize / 2 - yOffset, defaultSize, defaultSize);
     }
 
