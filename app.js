@@ -51,6 +51,19 @@
     const userAvatar = document.getElementById('user-avatar');
     const userName = document.getElementById('user-name');
 
+    // Settings elements
+    const settingsBtn = document.getElementById('settings-btn');
+    const settingsModal = document.getElementById('settings-modal');
+    const birthdayMonth = document.getElementById('birthday-month');
+    const birthdayDay = document.getElementById('birthday-day');
+    const clearBirthdayBtn = document.getElementById('clear-birthday-btn');
+    const settingsSaveBtn = document.getElementById('settings-save-btn');
+    const settingsCancelBtn = document.getElementById('settings-cancel-btn');
+
+    // Birthday event constants
+    const BIRTHDAY_COLOR = '#ff69b4'; // Pink
+    const BIRTHDAY_TITLE = 'My birthday!';
+
     // API helper
     async function api(endpoint, options = {}) {
         const response = await fetch(`${API_URL}${endpoint}`, {
@@ -120,6 +133,101 @@
         updateAnnotationMarkers();
     }
 
+    // Settings modal functions
+    function openSettingsModal() {
+        if (!currentUser) return;
+
+        // Populate current birthday values
+        if (currentUser.birthday_month) {
+            birthdayMonth.value = currentUser.birthday_month;
+            birthdayDay.value = currentUser.birthday_day || '';
+        } else {
+            birthdayMonth.value = '';
+            birthdayDay.value = '';
+        }
+
+        settingsModal.style.display = 'flex';
+    }
+
+    function closeSettingsModal() {
+        settingsModal.style.display = 'none';
+    }
+
+    async function saveSettings() {
+        const month = birthdayMonth.value ? parseInt(birthdayMonth.value) : null;
+        const day = birthdayDay.value ? parseInt(birthdayDay.value) : null;
+
+        // Validate day for month
+        if (month && day) {
+            const daysInMonth = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+            if (day < 1 || day > daysInMonth[month - 1]) {
+                alert(`Invalid day for ${MONTHS[month - 1]}`);
+                return;
+            }
+        }
+
+        try {
+            const updated = await api('/api/profile', {
+                method: 'PATCH',
+                body: JSON.stringify({
+                    birthday_month: month,
+                    birthday_day: day
+                })
+            });
+
+            if (updated) {
+                currentUser.birthday_month = updated.birthday_month;
+                currentUser.birthday_day = updated.birthday_day;
+                // Re-inject birthday event (this also removes the old one)
+                injectBirthdayEvent();
+                updateAnnotationMarkers();
+            }
+        } catch (e) {
+            console.error('Failed to save settings:', e);
+            alert('Failed to save settings');
+            return;
+        }
+
+        closeSettingsModal();
+    }
+
+    function clearBirthday() {
+        birthdayMonth.value = '';
+        birthdayDay.value = '';
+    }
+
+    function injectBirthdayEvent() {
+        if (!currentUser || !currentUser.birthday_month || !currentUser.birthday_day) return;
+
+        const dateKey = `${currentUser.birthday_month}-${currentUser.birthday_day}`;
+
+        // Remove any existing birthday event first
+        removeBirthdayEvent();
+
+        // Add birthday as a special annotation
+        if (!annotations[dateKey]) {
+            annotations[dateKey] = [];
+        }
+
+        annotations[dateKey].unshift({
+            title: BIRTHDAY_TITLE,
+            color: BIRTHDAY_COLOR,
+            isBirthday: true // Special flag to identify birthday events
+        });
+    }
+
+    function removeBirthdayEvent() {
+        // Remove birthday events from all dates
+        for (const dateKey of Object.keys(annotations)) {
+            annotations[dateKey] = annotations[dateKey].filter(a =>
+                !(typeof a === 'object' && a.isBirthday)
+            );
+            if (annotations[dateKey].length === 0) {
+                delete annotations[dateKey];
+            }
+        }
+    }
+
     // API event functions
     async function loadEventsFromAPI() {
         if (!currentUser) return;
@@ -142,6 +250,8 @@
                 }
                 annotations[key].push(annotation);
             });
+            // Inject birthday event if user has one set
+            injectBirthdayEvent();
             updateAnnotationMarkers();
         } catch (e) {
             console.error('Failed to load events:', e);
@@ -744,6 +854,13 @@
     function openEditModal(dateKey, index) {
         const [month, day] = dateKey.split('-').map(Number);
         const annotation = annotations[dateKey][index];
+
+        // If this is a birthday event, open settings instead
+        if (typeof annotation === 'object' && annotation.isBirthday) {
+            openSettingsModal();
+            return;
+        }
+
         const title = typeof annotation === 'string' ? annotation : annotation.title;
         const color = (typeof annotation === 'object' && annotation.color) ? annotation.color : DEFAULT_COLOR;
 
@@ -1758,6 +1875,30 @@
         if (loginBtn) loginBtn.addEventListener('click', handleLogin);
         if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
 
+        // Settings event listeners
+        if (settingsBtn) settingsBtn.addEventListener('click', openSettingsModal);
+        if (settingsSaveBtn) settingsSaveBtn.addEventListener('click', saveSettings);
+        if (settingsCancelBtn) settingsCancelBtn.addEventListener('click', closeSettingsModal);
+        if (clearBirthdayBtn) clearBirthdayBtn.addEventListener('click', clearBirthday);
+        if (birthdayMonth) {
+            birthdayMonth.addEventListener('change', () => {
+                const month = parseInt(birthdayMonth.value);
+                if (month) {
+                    const daysInMonth = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+                    birthdayDay.max = daysInMonth[month - 1];
+                    // Clamp current value if needed
+                    if (parseInt(birthdayDay.value) > daysInMonth[month - 1]) {
+                        birthdayDay.value = daysInMonth[month - 1];
+                    }
+                }
+            });
+        }
+        if (settingsModal) {
+            settingsModal.addEventListener('click', (e) => {
+                if (e.target === settingsModal) closeSettingsModal();
+            });
+        }
+
         // Check if user is authenticated (will load events from API if so)
         await checkAuth();
 
@@ -1780,8 +1921,13 @@
         });
 
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && modal.style.display === 'flex') {
-                closeModal();
+            if (e.key === 'Escape') {
+                if (modal.style.display === 'flex') {
+                    closeModal();
+                }
+                if (settingsModal && settingsModal.style.display === 'flex') {
+                    closeSettingsModal();
+                }
             }
             if (e.key === 'Enter' && modal.style.display === 'flex' && !e.shiftKey) {
                 e.preventDefault();

@@ -1,4 +1,4 @@
-"""One-time migration to add new columns to events table."""
+"""Database migrations for circle calendar."""
 import os
 import psycopg2
 
@@ -16,13 +16,31 @@ conn = psycopg2.connect(DATABASE_URL)
 cur = conn.cursor()
 
 migrations = [
+    # Event columns (from previous migration)
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS end_month INTEGER",
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS end_day INTEGER",
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS color VARCHAR(7) DEFAULT '#ff6360'",
+
+    # User birthday columns
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS birthday_month INTEGER",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS birthday_day INTEGER",
+
+    # Friendships table (for future mutual birthday sharing)
+    """
+    CREATE TABLE IF NOT EXISTS friendships (
+        id VARCHAR(36) PRIMARY KEY,
+        requester_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        addressee_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(requester_id, addressee_id)
+    )
+    """,
 ]
 
 for sql in migrations:
-    print(f"Running: {sql}")
+    print(f"Running: {sql.strip()[:60]}...")
     cur.execute(sql)
 
 conn.commit()

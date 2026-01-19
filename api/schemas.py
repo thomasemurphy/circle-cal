@@ -8,9 +8,16 @@ class UserResponse(BaseModel):
     email: str
     name: Optional[str]
     picture_url: Optional[str]
+    birthday_month: Optional[int] = None
+    birthday_day: Optional[int] = None
 
     class Config:
         from_attributes = True
+
+
+class UserUpdate(BaseModel):
+    birthday_month: Optional[int] = Field(None, ge=1, le=12)
+    birthday_day: Optional[int] = Field(None, ge=1, le=31)
 
 
 class EventCreate(BaseModel):
