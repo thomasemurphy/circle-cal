@@ -1727,12 +1727,12 @@
     }
 
     function resetZoom() {
-        // Start at 1.6x zoom for better default view
-        const defaultZoom = 1.8;
+        const defaultZoom = 1.4;
         const defaultSize = 700 / defaultZoom;
-        // Offset Y upward by 10% of the view size
-        const yOffset = defaultSize * 0.3;
-        setViewBox(-defaultSize / 2, -defaultSize / 2 - yOffset, defaultSize, defaultSize);
+        // const defaultSize = 400
+        // Offset Y upward
+        const yOffset = defaultSize * 0.05;
+        setViewBox(-defaultSize / 2, -defaultSize / 2 + yOffset, defaultSize, defaultSize);
     }
 
     async function init() {
@@ -1750,6 +1750,9 @@
         svg.appendChild(createCenterText(year));
         updateDaySegmentHighlights();
         initLabeler();
+
+        // Set initial zoom/position
+        resetZoom();
 
         // Auth event listeners
         if (loginBtn) loginBtn.addEventListener('click', handleLogin);
