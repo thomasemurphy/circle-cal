@@ -1727,10 +1727,12 @@
     }
 
     function resetZoom() {
-        // Start at 1.4x zoom for better default view
-        const defaultZoom = 1.4;
+        // Start at 1.6x zoom for better default view
+        const defaultZoom = 1.6;
         const defaultSize = 700 / defaultZoom;
-        setViewBox(-defaultSize / 2, -defaultSize / 2, defaultSize, defaultSize);
+        // Offset Y upward by 10% of the view size
+        const yOffset = defaultSize * 0.1;
+        setViewBox(-defaultSize / 2, -defaultSize / 2 - yOffset, defaultSize, defaultSize);
     }
 
     async function init() {
