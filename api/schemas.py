@@ -51,3 +51,49 @@ class EventResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# Friend-related schemas
+class FriendUserResponse(BaseModel):
+    """User info for friend display"""
+    id: str
+    email: str
+    name: Optional[str]
+    picture_url: Optional[str]
+    birthday_month: Optional[int] = None
+    birthday_day: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class FriendRequestCreate(BaseModel):
+    email: str = Field(min_length=1, max_length=255)
+
+
+class FriendRequestAction(BaseModel):
+    accept: bool
+
+
+class FriendRequestResponse(BaseModel):
+    id: str
+    requester: FriendUserResponse
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class FriendshipResponse(BaseModel):
+    id: str
+    friend: FriendUserResponse
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class FriendRequestSentResponse(BaseModel):
+    message: str
+    invited: bool = False

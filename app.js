@@ -63,6 +63,26 @@
     // Birthday event constants
     const BIRTHDAY_COLOR = '#ff69b4'; // Pink
     const BIRTHDAY_TITLE = 'My birthday!';
+    const FRIEND_BIRTHDAY_COLOR = '#9c27b0'; // Purple for friend birthdays
+
+    // Friends elements
+    const friendsBtn = document.getElementById('friends-btn');
+    const friendsModal = document.getElementById('friends-modal');
+    const friendBadge = document.getElementById('friend-badge');
+    const friendEmailInput = document.getElementById('friend-email');
+    const sendRequestBtn = document.getElementById('send-request-btn');
+    const friendRequestStatus = document.getElementById('friend-request-status');
+    const pendingRequestsSection = document.getElementById('pending-requests-section');
+    const pendingRequestsList = document.getElementById('pending-requests-list');
+    const currentFriendsSection = document.getElementById('current-friends-section');
+    const currentFriendsList = document.getElementById('current-friends-list');
+    const friendsCloseBtn = document.getElementById('friends-close-btn');
+
+    // Friends state
+    let pendingFriendRequests = [];
+    let friends = [];
+    let friendsPollInterval = null;
+    const FRIENDS_POLL_INTERVAL = 30000; // 30 seconds
 
     // API helper
     async function api(endpoint, options = {}) {
@@ -89,6 +109,11 @@
                 currentUser = user;
                 updateAuthUI();
                 await loadEventsFromAPI();
+
+                // Start polling for friend requests
+                pendingFriendRequests = await fetchPendingRequests();
+                updateFriendBadge();
+                startFriendsPoll();
             } else {
                 showLoginButton();
             }
@@ -128,6 +153,10 @@
         currentUser = null;
         events = [];
         annotations = {};
+        friends = [];
+        pendingFriendRequests = [];
+        stopFriendsPoll();
+        updateFriendBadge();
         loadFromLocalStorage();
         updateAuthUI();
         updateAnnotationMarkers();
@@ -196,31 +225,263 @@
         birthdayDay.value = '';
     }
 
-    function injectBirthdayEvent() {
-        if (!currentUser || !currentUser.birthday_month || !currentUser.birthday_day) return;
-
-        const dateKey = `${currentUser.birthday_month}-${currentUser.birthday_day}`;
-
-        // Remove any existing birthday event first
-        removeBirthdayEvent();
-
-        // Add birthday as a special annotation
-        if (!annotations[dateKey]) {
-            annotations[dateKey] = [];
+    // Friends API functions
+    async function fetchPendingRequests() {
+        if (!currentUser) return [];
+        try {
+            return await api('/api/friends/requests/pending');
+        } catch (e) {
+            console.error('Failed to fetch pending requests:', e);
+            return [];
         }
+    }
 
-        annotations[dateKey].unshift({
-            title: BIRTHDAY_TITLE,
-            color: BIRTHDAY_COLOR,
-            isBirthday: true // Special flag to identify birthday events
+    async function fetchFriends() {
+        if (!currentUser) return [];
+        try {
+            return await api('/api/friends');
+        } catch (e) {
+            console.error('Failed to fetch friends:', e);
+            return [];
+        }
+    }
+
+    async function sendFriendRequestAPI(email) {
+        return await api('/api/friends/request', {
+            method: 'POST',
+            body: JSON.stringify({ email }),
         });
     }
 
-    function removeBirthdayEvent() {
-        // Remove birthday events from all dates
+    async function respondToFriendRequest(friendshipId, accept) {
+        return await api(`/api/friends/request/${friendshipId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ accept }),
+        });
+    }
+
+    async function removeFriendAPI(friendshipId) {
+        return await api(`/api/friends/${friendshipId}`, {
+            method: 'DELETE',
+        });
+    }
+
+    // Friends modal functions
+    function openFriendsModal() {
+        if (!currentUser) return;
+
+        friendEmailInput.value = '';
+        friendRequestStatus.textContent = '';
+        friendRequestStatus.className = 'request-status';
+
+        refreshFriendsModal();
+        friendsModal.style.display = 'flex';
+    }
+
+    function closeFriendsModal() {
+        friendsModal.style.display = 'none';
+    }
+
+    async function refreshFriendsModal() {
+        pendingFriendRequests = await fetchPendingRequests();
+        friends = await fetchFriends();
+
+        renderPendingRequests();
+        renderFriends();
+        updateFriendBadge();
+    }
+
+    function renderPendingRequests() {
+        if (pendingFriendRequests.length === 0) {
+            pendingRequestsSection.style.display = 'none';
+            return;
+        }
+
+        pendingRequestsSection.style.display = 'block';
+        pendingRequestsList.innerHTML = pendingFriendRequests.map(req => `
+            <li>
+                <div class="friend-info">
+                    ${req.requester.picture_url ? `<img src="${req.requester.picture_url}" class="friend-avatar" alt="">` : ''}
+                    <div>
+                        <div class="friend-name">${req.requester.name || 'Unknown'}</div>
+                        <div class="friend-email">${req.requester.email}</div>
+                    </div>
+                </div>
+                <div class="friend-actions">
+                    <button class="accept-btn" data-id="${req.id}">Accept</button>
+                    <button class="decline-btn" data-id="${req.id}">Decline</button>
+                </div>
+            </li>
+        `).join('');
+
+        // Add event listeners
+        pendingRequestsList.querySelectorAll('.accept-btn').forEach(btn => {
+            btn.addEventListener('click', () => handleFriendResponse(btn.dataset.id, true));
+        });
+        pendingRequestsList.querySelectorAll('.decline-btn').forEach(btn => {
+            btn.addEventListener('click', () => handleFriendResponse(btn.dataset.id, false));
+        });
+    }
+
+    function renderFriends() {
+        if (friends.length === 0) {
+            currentFriendsSection.style.display = 'none';
+            return;
+        }
+
+        currentFriendsSection.style.display = 'block';
+        currentFriendsList.innerHTML = friends.map(friendship => {
+            const friend = friendship.friend;
+            return `
+                <li>
+                    <div class="friend-info">
+                        ${friend.picture_url ? `<img src="${friend.picture_url}" class="friend-avatar" alt="">` : ''}
+                        <div>
+                            <div class="friend-name">${friend.name || 'Unknown'}</div>
+                            <div class="friend-email">${friend.email}</div>
+                        </div>
+                    </div>
+                    <div class="friend-actions">
+                        <button class="remove-btn" data-id="${friendship.id}">Remove</button>
+                    </div>
+                </li>
+            `;
+        }).join('');
+
+        // Add event listeners
+        currentFriendsList.querySelectorAll('.remove-btn').forEach(btn => {
+            btn.addEventListener('click', () => handleRemoveFriend(btn.dataset.id));
+        });
+    }
+
+    function updateFriendBadge() {
+        const count = pendingFriendRequests.length;
+        if (count > 0) {
+            friendBadge.textContent = count;
+            friendBadge.style.display = 'flex';
+        } else {
+            friendBadge.style.display = 'none';
+        }
+    }
+
+    async function handleSendFriendRequest() {
+        const email = friendEmailInput.value.trim();
+        if (!email) return;
+
+        sendRequestBtn.disabled = true;
+        friendRequestStatus.textContent = 'Sending...';
+        friendRequestStatus.className = 'request-status';
+
+        try {
+            const result = await sendFriendRequestAPI(email);
+            friendRequestStatus.textContent = result.message;
+            friendRequestStatus.className = 'request-status success';
+            friendEmailInput.value = '';
+        } catch (e) {
+            let errorMsg = 'Failed to send request.';
+            if (e.message.includes('400')) {
+                errorMsg = 'Already friends or request pending.';
+            }
+            friendRequestStatus.textContent = errorMsg;
+            friendRequestStatus.className = 'request-status error';
+        }
+
+        sendRequestBtn.disabled = false;
+    }
+
+    async function handleFriendResponse(friendshipId, accept) {
+        try {
+            await respondToFriendRequest(friendshipId, accept);
+            await refreshFriendsModal();
+
+            // Reload events to get friend birthdays
+            if (accept) {
+                await loadEventsFromAPI();
+            }
+        } catch (e) {
+            console.error('Failed to respond to friend request:', e);
+        }
+    }
+
+    async function handleRemoveFriend(friendshipId) {
+        if (!confirm('Remove this friend? Their birthday will be removed from your calendar.')) {
+            return;
+        }
+
+        try {
+            await removeFriendAPI(friendshipId);
+            await refreshFriendsModal();
+            await loadEventsFromAPI(); // Reload to remove friend birthday
+        } catch (e) {
+            console.error('Failed to remove friend:', e);
+        }
+    }
+
+    function startFriendsPoll() {
+        if (friendsPollInterval) return;
+
+        friendsPollInterval = setInterval(async () => {
+            if (!currentUser) return;
+
+            pendingFriendRequests = await fetchPendingRequests();
+            updateFriendBadge();
+
+            // If modal is open, refresh the list
+            if (friendsModal && friendsModal.style.display === 'flex') {
+                friends = await fetchFriends();
+                renderPendingRequests();
+                renderFriends();
+            }
+        }, FRIENDS_POLL_INTERVAL);
+    }
+
+    function stopFriendsPoll() {
+        if (friendsPollInterval) {
+            clearInterval(friendsPollInterval);
+            friendsPollInterval = null;
+        }
+    }
+
+    function injectBirthdayEvent() {
+        // Remove all birthday events first (own and friends)
+        removeBirthdayEvents();
+
+        // Inject own birthday
+        if (currentUser && currentUser.birthday_month && currentUser.birthday_day) {
+            const dateKey = `${currentUser.birthday_month}-${currentUser.birthday_day}`;
+            if (!annotations[dateKey]) {
+                annotations[dateKey] = [];
+            }
+            annotations[dateKey].unshift({
+                title: BIRTHDAY_TITLE,
+                color: BIRTHDAY_COLOR,
+                isBirthday: true
+            });
+        }
+
+        // Inject friend birthdays
+        friends.forEach(friendship => {
+            const friend = friendship.friend;
+            if (friend.birthday_month && friend.birthday_day) {
+                const dateKey = `${friend.birthday_month}-${friend.birthday_day}`;
+                if (!annotations[dateKey]) {
+                    annotations[dateKey] = [];
+                }
+                annotations[dateKey].push({
+                    title: `${friend.name || 'Friend'}'s birthday`,
+                    color: FRIEND_BIRTHDAY_COLOR,
+                    isFriendBirthday: true,
+                    friendId: friend.id
+                });
+            }
+        });
+    }
+
+    function removeBirthdayEvents() {
+        // Remove all birthday events (own and friends)
         for (const dateKey of Object.keys(annotations)) {
             annotations[dateKey] = annotations[dateKey].filter(a =>
-                !(typeof a === 'object' && a.isBirthday)
+                !(typeof a === 'object' && (a.isBirthday || a.isFriendBirthday))
             );
             if (annotations[dateKey].length === 0) {
                 delete annotations[dateKey];
@@ -233,6 +494,8 @@
         if (!currentUser) return;
         try {
             events = await api('/api/events');
+            friends = await fetchFriends(); // Also fetch friends for birthday display
+
             // Convert events to annotations format
             annotations = {};
             events.forEach(event => {
@@ -250,7 +513,7 @@
                 }
                 annotations[key].push(annotation);
             });
-            // Inject birthday event if user has one set
+            // Inject birthday events (own and friends)
             injectBirthdayEvent();
             updateAnnotationMarkers();
         } catch (e) {
@@ -1899,6 +2162,21 @@
             });
         }
 
+        // Friends event listeners
+        if (friendsBtn) friendsBtn.addEventListener('click', openFriendsModal);
+        if (friendsCloseBtn) friendsCloseBtn.addEventListener('click', closeFriendsModal);
+        if (sendRequestBtn) sendRequestBtn.addEventListener('click', handleSendFriendRequest);
+        if (friendEmailInput) {
+            friendEmailInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') handleSendFriendRequest();
+            });
+        }
+        if (friendsModal) {
+            friendsModal.addEventListener('click', (e) => {
+                if (e.target === friendsModal) closeFriendsModal();
+            });
+        }
+
         // Check if user is authenticated (will load events from API if so)
         await checkAuth();
 
@@ -1927,6 +2205,9 @@
                 }
                 if (settingsModal && settingsModal.style.display === 'flex') {
                     closeSettingsModal();
+                }
+                if (friendsModal && friendsModal.style.display === 'flex') {
+                    closeFriendsModal();
                 }
             }
             if (e.key === 'Enter' && modal.style.display === 'flex' && !e.shiftKey) {
