@@ -2106,6 +2106,101 @@
         }
     }
 
+    // Touch support for mobile pinch-to-zoom and pan
+    let touchStartDistance = 0;
+    let touchStartZoom = 1;
+    let touchStartCenter = { x: 0, y: 0 };
+    let isTouchPanning = false;
+    let lastTouchCenter = { x: 0, y: 0 };
+
+    function getTouchDistance(touches) {
+        const dx = touches[0].clientX - touches[1].clientX;
+        const dy = touches[0].clientY - touches[1].clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function getTouchCenter(touches) {
+        return {
+            x: (touches[0].clientX + touches[1].clientX) / 2,
+            y: (touches[0].clientY + touches[1].clientY) / 2
+        };
+    }
+
+    function handleTouchStart(e) {
+        if (e.touches.length === 2) {
+            // Pinch zoom start
+            e.preventDefault();
+            touchStartDistance = getTouchDistance(e.touches);
+            touchStartZoom = currentZoom;
+            touchStartCenter = getTouchCenter(e.touches);
+            lastTouchCenter = touchStartCenter;
+            isTouchPanning = false;
+        } else if (e.touches.length === 1) {
+            // Single touch pan start
+            if (e.target.classList.contains('day-segment')) return;
+            isTouchPanning = true;
+            panStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            const vb = getViewBox();
+            viewBoxStart = { x: vb.x, y: vb.y };
+        }
+    }
+
+    function handleTouchMove(e) {
+        if (e.touches.length === 2) {
+            // Pinch zoom
+            e.preventDefault();
+            const currentDistance = getTouchDistance(e.touches);
+            const currentCenter = getTouchCenter(e.touches);
+
+            // Calculate new zoom
+            const scale = currentDistance / touchStartDistance;
+            const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, touchStartZoom * scale));
+
+            if (newZoom !== currentZoom) {
+                // Get center position in SVG coordinates
+                const pt = svg.createSVGPoint();
+                pt.x = currentCenter.x;
+                pt.y = currentCenter.y;
+                const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+
+                const vb = getViewBox();
+                const newSize = 700 / newZoom;
+
+                // Zoom centered on pinch center
+                const cursorRatioX = (svgP.x - vb.x) / vb.w;
+                const cursorRatioY = (svgP.y - vb.y) / vb.h;
+
+                const newX = svgP.x - cursorRatioX * newSize;
+                const newY = svgP.y - cursorRatioY * newSize;
+
+                setViewBox(newX, newY, newSize, newSize);
+            }
+
+            lastTouchCenter = currentCenter;
+        } else if (e.touches.length === 1 && isTouchPanning) {
+            // Single touch pan
+            e.preventDefault();
+            const vb = getViewBox();
+            const scale = vb.w / svg.clientWidth;
+
+            const dx = (e.touches[0].clientX - panStart.x) * scale;
+            const dy = (e.touches[0].clientY - panStart.y) * scale;
+
+            svg.setAttribute('viewBox', `${viewBoxStart.x - dx} ${viewBoxStart.y - dy} ${vb.w} ${vb.h}`);
+            updateCenterTextPosition();
+            updateEventTextPositions();
+        }
+    }
+
+    function handleTouchEnd(e) {
+        if (e.touches.length < 2) {
+            touchStartDistance = 0;
+        }
+        if (e.touches.length === 0) {
+            isTouchPanning = false;
+        }
+    }
+
     function resetZoom() {
         const defaultZoom = 1.4;
         const defaultSize = 700 / defaultZoom;
@@ -2227,6 +2322,11 @@
         svg.addEventListener('mousemove', handlePanMove);
         svg.addEventListener('mouseup', handlePanEnd);
         svg.addEventListener('mouseleave', handlePanEnd);
+
+        // Touch handlers for mobile pinch-to-zoom and pan
+        svg.addEventListener('touchstart', handleTouchStart, { passive: false });
+        svg.addEventListener('touchmove', handleTouchMove, { passive: false });
+        svg.addEventListener('touchend', handleTouchEnd);
 
         // Update time every minute
         setInterval(updateCenterText, 60000);
