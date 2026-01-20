@@ -37,7 +37,7 @@ async def send_friend_invitation(to_email: str, from_user_name: str) -> bool:
 
     try:
         message = Mail(
-            from_email=Email("noreply@circlecalendar.app", "Circle Calendar"),
+            from_email=Email("noreply@circlecalendars.com", "Circle Calendar"),
             to_emails=To(to_email),
             subject=subject,
             html_content=Content("text/html", html_content)
