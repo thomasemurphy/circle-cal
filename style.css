@@ -163,14 +163,24 @@ body {
     width: 100%;
     max-width: 900px;
     padding: 20px;
+    overflow: visible;
+}
+
+.calendar-wrapper {
+    width: 100%;
+    position: relative;
+    padding-bottom: 100%; /* 1:1 aspect ratio */
 }
 
 #calendar {
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100%;
-    height: auto;
-    aspect-ratio: 1 / 1;
+    height: 100%;
     transition: all 0.3s ease;
     user-select: none;
+    touch-action: none;
 }
 
 #calendar.zoomed {
