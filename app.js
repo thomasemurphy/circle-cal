@@ -458,7 +458,6 @@
                 isBirthday: true
             });
         }
-    }
 
         // Inject friend birthdays
         friends.forEach(friendship => {
