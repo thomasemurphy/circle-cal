@@ -55,6 +55,7 @@ class EventResponse(BaseModel):
 
 # Friend-related schemas
 class FriendUserResponse(BaseModel):
+    """User info for friend display"""
     id: str
     email: str
     name: Optional[str]

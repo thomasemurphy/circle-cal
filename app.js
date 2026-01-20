@@ -269,9 +269,11 @@
     // Friends modal functions
     function openFriendsModal() {
         if (!currentUser) return;
+
         friendEmailInput.value = '';
         friendRequestStatus.textContent = '';
         friendRequestStatus.className = 'request-status';
+
         refreshFriendsModal();
         friendsModal.style.display = 'flex';
     }
@@ -283,6 +285,7 @@
     async function refreshFriendsModal() {
         pendingFriendRequests = await fetchPendingRequests();
         friends = await fetchFriends();
+
         renderPendingRequests();
         renderFriends();
         updateFriendBadge();
@@ -293,6 +296,7 @@
             pendingRequestsSection.style.display = 'none';
             return;
         }
+
         pendingRequestsSection.style.display = 'block';
         pendingRequestsList.innerHTML = pendingFriendRequests.map(req => `
             <li>
@@ -309,6 +313,8 @@
                 </div>
             </li>
         `).join('');
+
+        // Add event listeners
         pendingRequestsList.querySelectorAll('.accept-btn').forEach(btn => {
             btn.addEventListener('click', () => handleFriendResponse(btn.dataset.id, true));
         });
@@ -322,6 +328,7 @@
             currentFriendsSection.style.display = 'none';
             return;
         }
+
         currentFriendsSection.style.display = 'block';
         currentFriendsList.innerHTML = friends.map(friendship => {
             const friend = friendship.friend;
@@ -340,6 +347,8 @@
                 </li>
             `;
         }).join('');
+
+        // Add event listeners
         currentFriendsList.querySelectorAll('.remove-btn').forEach(btn => {
             btn.addEventListener('click', () => handleRemoveFriend(btn.dataset.id));
         });
@@ -358,9 +367,11 @@
     async function handleSendFriendRequest() {
         const email = friendEmailInput.value.trim();
         if (!email) return;
+
         sendRequestBtn.disabled = true;
         friendRequestStatus.textContent = 'Sending...';
         friendRequestStatus.className = 'request-status';
+
         try {
             const result = await sendFriendRequestAPI(email);
             friendRequestStatus.textContent = result.message;
@@ -374,6 +385,7 @@
             friendRequestStatus.textContent = errorMsg;
             friendRequestStatus.className = 'request-status error';
         }
+
         sendRequestBtn.disabled = false;
     }
 
@@ -381,6 +393,8 @@
         try {
             await respondToFriendRequest(friendshipId, accept);
             await refreshFriendsModal();
+
+            // Reload events to get friend birthdays
             if (accept) {
                 await loadEventsFromAPI();
             }
@@ -393,10 +407,11 @@
         if (!confirm('Remove this friend? Their birthday will be removed from your calendar.')) {
             return;
         }
+
         try {
             await removeFriendAPI(friendshipId);
             await refreshFriendsModal();
-            await loadEventsFromAPI();
+            await loadEventsFromAPI(); // Reload to remove friend birthday
         } catch (e) {
             console.error('Failed to remove friend:', e);
         }
@@ -404,10 +419,14 @@
 
     function startFriendsPoll() {
         if (friendsPollInterval) return;
+
         friendsPollInterval = setInterval(async () => {
             if (!currentUser) return;
+
             pendingFriendRequests = await fetchPendingRequests();
             updateFriendBadge();
+
+            // If modal is open, refresh the list
             if (friendsModal && friendsModal.style.display === 'flex') {
                 friends = await fetchFriends();
                 renderPendingRequests();
@@ -439,6 +458,7 @@
                 isBirthday: true
             });
         }
+    }
 
         // Inject friend birthdays
         friends.forEach(friendship => {
@@ -2088,12 +2108,12 @@
     }
 
     function resetZoom() {
-        // Start at 1.6x zoom for better default view
-        const defaultZoom = 1.8;
+        const defaultZoom = 1.4;
         const defaultSize = 700 / defaultZoom;
-        // Offset Y upward by 10% of the view size
-        const yOffset = defaultSize * 0.3;
-        setViewBox(-defaultSize / 2, -defaultSize / 2 - yOffset, defaultSize, defaultSize);
+        // const defaultSize = 400
+        // Offset Y upward
+        const yOffset = defaultSize * 0.05;
+        setViewBox(-defaultSize / 2, -defaultSize / 2 + yOffset, defaultSize, defaultSize);
     }
 
     async function init() {
@@ -2111,6 +2131,9 @@
         svg.appendChild(createCenterText(year));
         updateDaySegmentHighlights();
         initLabeler();
+
+        // Set initial zoom/position
+        resetZoom();
 
         // Auth event listeners
         if (loginBtn) loginBtn.addEventListener('click', handleLogin);
