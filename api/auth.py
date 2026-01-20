@@ -8,7 +8,7 @@ from jose import jwt, JWTError
 from datetime import datetime, timedelta
 
 from .database import get_db
-from .models import User
+from .models import User, PendingInvitation, Friendship
 from .schemas import UserResponse
 from .config import get_settings
 
@@ -105,6 +105,25 @@ async def google_callback(request: Request, db: AsyncSession = Depends(get_db)):
         db.add(user)
         await db.commit()
         await db.refresh(user)
+
+        # Convert any pending invitations to friend requests
+        pending_result = await db.execute(
+            select(PendingInvitation).where(PendingInvitation.invited_email == email.lower())
+        )
+        pending_invitations = pending_result.scalars().all()
+
+        for invitation in pending_invitations:
+            # Create a friendship request from the inviter to the new user
+            friendship = Friendship(
+                requester_id=invitation.inviter_id,
+                addressee_id=user.id,
+                status="pending"
+            )
+            db.add(friendship)
+            await db.delete(invitation)
+
+        if pending_invitations:
+            await db.commit()
     else:
         # Update user info
         user.email = email

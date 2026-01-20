@@ -75,3 +75,19 @@ class Friendship(Base):
     __table_args__ = (
         UniqueConstraint('requester_id', 'addressee_id', name='unique_friendship_request'),
     )
+
+
+class PendingInvitation(Base):
+    """Stores friend invitations for users who haven't signed up yet"""
+    __tablename__ = "pending_invitations"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    inviter_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    invited_email = Column(String(255), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+    inviter = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint('inviter_id', 'invited_email', name='unique_pending_invitation'),
+    )

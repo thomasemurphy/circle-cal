@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 from typing import List
 
 from .database import get_db
-from .models import User, Friendship
+from .models import User, Friendship, PendingInvitation
 from .schemas import (
     FriendRequestCreate,
     FriendRequestResponse,
@@ -97,8 +97,24 @@ async def send_friend_request(
     )
     addressee = result.scalar_one_or_none()
 
-    # If user not found, send email invitation
+    # If user not found, send email invitation and store pending invitation
     if not addressee:
+        # Check if invitation already exists
+        existing_invite = await db.execute(
+            select(PendingInvitation).where(
+                PendingInvitation.inviter_id == user.id,
+                PendingInvitation.invited_email == email.lower()
+            )
+        )
+        if not existing_invite.scalar_one_or_none():
+            # Create pending invitation record (store email lowercase for matching)
+            pending = PendingInvitation(
+                inviter_id=user.id,
+                invited_email=email.lower()
+            )
+            db.add(pending)
+            await db.commit()
+
         from_name = user.name or user.email.split("@")[0]
         await send_friend_invitation(email, from_name)
         return FriendRequestSentResponse(

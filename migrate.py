@@ -37,6 +37,17 @@ migrations = [
         UNIQUE(requester_id, addressee_id)
     )
     """,
+
+    # Pending invitations table (for inviting non-users)
+    """
+    CREATE TABLE IF NOT EXISTS pending_invitations (
+        id VARCHAR(36) PRIMARY KEY,
+        inviter_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        invited_email VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(inviter_id, invited_email)
+    )
+    """,
 ]
 
 for sql in migrations:
