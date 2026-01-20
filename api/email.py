@@ -1,5 +1,5 @@
 from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail, Email, To, Content
+from sendgrid.helpers.mail import Mail, Email, To, Content, TrackingSettings, ClickTracking
 from .config import get_settings
 
 settings = get_settings()
@@ -41,6 +41,10 @@ async def send_friend_invitation(to_email: str, from_user_name: str) -> bool:
             to_emails=To(to_email),
             subject=subject,
             html_content=Content("text/html", html_content)
+        )
+        # Disable click tracking until SSL is configured for link branding
+        message.tracking_settings = TrackingSettings(
+            click_tracking=ClickTracking(enable=False, enable_text=False)
         )
 
         sg = SendGridAPIClient(settings.sendgrid_api_key)
