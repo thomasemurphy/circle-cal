@@ -198,7 +198,7 @@ body {
 
 .day-segment:hover,
 .day-segment.hovered {
-    fill: var(--segment-hover);
+    filter: brightness(1.15);
 }
 
 .day-segment.range-selected {
@@ -219,7 +219,7 @@ body {
 
 .day-segment.has-event:hover,
 .day-segment.has-event.hovered {
-    fill: var(--segment-hover);
+    filter: brightness(1.15);
 }
 
 /* Event subsegments for multi-event days */
