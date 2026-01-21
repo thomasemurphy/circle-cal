@@ -217,6 +217,11 @@ body {
     filter: brightness(0.88);
 }
 
+.day-segment.has-event:hover,
+.day-segment.has-event.hovered {
+    fill: var(--segment-hover);
+}
+
 /* Event subsegments for multi-event days */
 .event-subsegment {
     stroke: var(--border-color);
