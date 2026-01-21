@@ -2330,6 +2330,23 @@
 
         // Update time every minute
         setInterval(updateCenterText, 60000);
+
+        // Size the SVG explicitly for iOS/Safari compatibility
+        sizeSVGWrapper();
+        window.addEventListener('resize', sizeSVGWrapper);
+        window.addEventListener('orientationchange', () => {
+            // Delay to allow orientation change to complete
+            setTimeout(sizeSVGWrapper, 100);
+        });
+    }
+
+    // Explicitly set SVG height based on width for iOS/Safari compatibility
+    function sizeSVGWrapper() {
+        const wrapper = document.querySelector('.calendar-wrapper');
+        if (wrapper) {
+            const width = wrapper.offsetWidth;
+            svg.style.height = width + 'px';
+        }
     }
 
     init();
