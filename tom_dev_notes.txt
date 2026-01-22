@@ -1,0 +1,2 @@
+- I don't like the lines connecting the event text to the date tile
+- Text should be hidden when there's enough of it

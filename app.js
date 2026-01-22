@@ -967,6 +967,10 @@
                 text.style.cursor = 'grab';
                 text.addEventListener('mousedown', startAnnotationDrag);
 
+                // Add hover listeners for linked highlighting
+                text.addEventListener('mouseenter', handleAnnotationHover);
+                text.addEventListener('mouseleave', handleAnnotationLeave);
+
                 group.appendChild(text);
             });
         }
@@ -1483,11 +1487,80 @@
         tooltip.style.top = (e.clientY + 10) + 'px';
 
         e.target.classList.add('hovered');
+
+        // Highlight linked annotation text and lines
+        highlightLinkedAnnotations(dateKey, true);
     }
 
     function handleDayLeave(e) {
         tooltip.style.display = 'none';
         e.target.classList.remove('hovered');
+
+        // Remove linked annotation highlighting
+        const month = parseInt(e.target.getAttribute('data-month'));
+        const day = parseInt(e.target.getAttribute('data-day'));
+        const dateKey = getDateKey(month, day);
+        highlightLinkedAnnotations(dateKey, false);
+    }
+
+    function highlightLinkedAnnotations(dateKey, highlight) {
+        // Find all annotation texts and lines for this date
+        const texts = document.querySelectorAll(`.annotation-text[data-date-key="${dateKey}"]`);
+        const lines = document.querySelectorAll(`.annotation-line[data-date-key="${dateKey}"]`);
+
+        texts.forEach(text => {
+            if (highlight) {
+                text.classList.add('linked-hover');
+            } else {
+                text.classList.remove('linked-hover');
+            }
+        });
+
+        lines.forEach(line => {
+            if (highlight) {
+                line.classList.add('linked-hover');
+            } else {
+                line.classList.remove('linked-hover');
+            }
+        });
+    }
+
+    function highlightLinkedDayTile(dateKey, highlight) {
+        // dateKey is "month-day" with 1-indexed month
+        const [month, day] = dateKey.split('-').map(Number);
+        const monthIdx = month - 1; // Convert to 0-indexed
+
+        // Find the day segment
+        const segment = document.querySelector(`.day-segment[data-month="${monthIdx}"][data-day="${day}"]`);
+        if (segment) {
+            if (highlight) {
+                segment.classList.add('linked-hover');
+            } else {
+                segment.classList.remove('linked-hover');
+            }
+        }
+
+        // Also highlight any event subsegments for multi-event days
+        const subsegments = document.querySelectorAll(`.event-subsegment[data-month="${monthIdx}"][data-day="${day}"]`);
+        subsegments.forEach(sub => {
+            if (highlight) {
+                sub.classList.add('linked-hover');
+            } else {
+                sub.classList.remove('linked-hover');
+            }
+        });
+    }
+
+    function handleAnnotationHover(e) {
+        const dateKey = e.target.getAttribute('data-date-key');
+        highlightLinkedDayTile(dateKey, true);
+        highlightLinkedAnnotations(dateKey, true);
+    }
+
+    function handleAnnotationLeave(e) {
+        const dateKey = e.target.getAttribute('data-date-key');
+        highlightLinkedDayTile(dateKey, false);
+        highlightLinkedAnnotations(dateKey, false);
     }
 
     function handleDayMouseDown(e) {
