@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, UniqueConstraint, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
@@ -52,6 +52,7 @@ class Event(Base):
     end_day = Column(Integer, nullable=True)    # For multi-day events
     title = Column(String(500), nullable=False)
     color = Column(String(7), nullable=True, default="#ff6360")  # Hex color
+    hidden = Column(Boolean, nullable=False, default=False)  # Hide event text/line
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

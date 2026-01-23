@@ -18,6 +18,7 @@
     let currentUser = null;
     let events = []; // Events from API
     let selectedColor = '#ff6360'; // Default color
+    let selectedHidden = false; // Default visibility
     const DEFAULT_COLOR = '#ff6360';
 
     // Range selection state
@@ -505,6 +506,7 @@
                     id: event.id,
                     title: event.title,
                     color: event.color || DEFAULT_COLOR,
+                    hidden: event.hidden || false,
                 };
                 // Add end date for multi-day events
                 if (event.end_month && event.end_day) {
@@ -521,7 +523,7 @@
         }
     }
 
-    async function createEventAPI(month, day, title, endMonth, endDay, color) {
+    async function createEventAPI(month, day, title, endMonth, endDay, color, hidden) {
         if (!currentUser) return null;
         try {
             const body = { month, day, title };
@@ -531,6 +533,9 @@
             }
             if (color) {
                 body.color = color;
+            }
+            if (hidden !== undefined) {
+                body.hidden = hidden;
             }
             const event = await api('/api/events', {
                 method: 'POST',
@@ -572,6 +577,19 @@
             dayOfYear += getDaysInMonth(m, year);
         }
         return dayOfYear;
+    }
+
+    function getMonthDayFromDayOfYear(dayOfYear, year) {
+        let remaining = dayOfYear;
+        for (let m = 0; m < 12; m++) {
+            const daysInMonth = getDaysInMonth(m, year);
+            if (remaining <= daysInMonth) {
+                return { month: m, day: remaining };
+            }
+            remaining -= daysInMonth;
+        }
+        // Fallback (shouldn't happen)
+        return { month: 11, day: 31 };
     }
 
     // Compare two dates (month is 0-indexed), returns -1, 0, or 1
@@ -864,6 +882,10 @@
 
             // Create text and line for each annotation
             annList.forEach((annotation, index) => {
+                // Skip hidden events - they don't get text/line markers
+                const isHidden = typeof annotation === 'object' && annotation.hidden;
+                if (isHidden) return;
+
                 // Check for multi-day event
                 const hasEndDate = typeof annotation === 'object' && annotation.endMonth !== undefined;
                 const endMonth = hasEndDate ? annotation.endMonth : startMonth;
@@ -944,6 +966,11 @@
                 text.setAttribute('data-original-x', textX);
                 text.setAttribute('data-original-y', textY);
                 text.setAttribute('data-angle', angle);
+                // Store end date for multi-day events (0-indexed months)
+                if (hasEndDate) {
+                    text.setAttribute('data-end-month', endMonth);
+                    text.setAttribute('data-end-day', endDay);
+                }
                 text.style.fill = color;
 
                 // Determine text anchor based on position (left/right side)
@@ -1130,6 +1157,7 @@
 
         const title = typeof annotation === 'string' ? annotation : annotation.title;
         const color = (typeof annotation === 'object' && annotation.color) ? annotation.color : DEFAULT_COLOR;
+        const hidden = (typeof annotation === 'object' && annotation.hidden) ? annotation.hidden : false;
 
         editingAnnotation = { dateKey, index };
         selectedDate = { month: month - 1, day };
@@ -1143,6 +1171,12 @@
         selectedColor = color;
         document.querySelectorAll('.color-option').forEach(opt => {
             opt.classList.toggle('selected', opt.getAttribute('data-color') === color);
+        });
+
+        // Set visibility toggle to current state
+        selectedHidden = hidden;
+        document.querySelectorAll('.visibility-btn').forEach(btn => {
+            btn.classList.toggle('selected', (btn.getAttribute('data-hidden') === 'true') === hidden);
         });
 
         // Show delete button, hide it otherwise
@@ -1488,8 +1522,9 @@
 
         e.target.classList.add('hovered');
 
-        // Highlight linked annotation text and lines
-        highlightLinkedAnnotations(dateKey, true);
+        // Highlight linked annotation text and lines (including multi-day events containing this date)
+        const eventDateKeys = findEventsContainingDate(month, day);
+        eventDateKeys.forEach(key => highlightLinkedAnnotations(key, true));
     }
 
     function handleDayLeave(e) {
@@ -1499,8 +1534,41 @@
         // Remove linked annotation highlighting
         const month = parseInt(e.target.getAttribute('data-month'));
         const day = parseInt(e.target.getAttribute('data-day'));
-        const dateKey = getDateKey(month, day);
-        highlightLinkedAnnotations(dateKey, false);
+        const eventDateKeys = findEventsContainingDate(month, day);
+        eventDateKeys.forEach(key => highlightLinkedAnnotations(key, false));
+    }
+
+    function findEventsContainingDate(month, day) {
+        // Returns array of dateKeys for all events that contain the given date
+        // month is 0-indexed
+        const year = new Date().getFullYear();
+        const targetDoy = getDayOfYearFromMonthDay(month, day, year);
+        const result = [];
+
+        for (const [dateKey, annList] of Object.entries(annotations)) {
+            if (!annList || annList.length === 0) continue;
+
+            const [startMonth, startDay] = dateKey.split('-').map(Number);
+            const startMonthIdx = startMonth - 1; // Convert to 0-indexed
+
+            for (const annotation of annList) {
+                const hasEndDate = typeof annotation === 'object' && annotation.endMonth !== undefined;
+                const endMonthIdx = hasEndDate ? annotation.endMonth : startMonthIdx;
+                const endDay = hasEndDate ? annotation.endDay : startDay;
+
+                const startDoy = getDayOfYearFromMonthDay(startMonthIdx, startDay, year);
+                const endDoy = getDayOfYearFromMonthDay(endMonthIdx, endDay, year);
+
+                if (targetDoy >= startDoy && targetDoy <= endDoy) {
+                    if (!result.includes(dateKey)) {
+                        result.push(dateKey);
+                    }
+                    break; // Found a match in this dateKey, move to next
+                }
+            }
+        }
+
+        return result;
     }
 
     function highlightLinkedAnnotations(dateKey, highlight) {
@@ -1525,41 +1593,65 @@
         });
     }
 
-    function highlightLinkedDayTile(dateKey, highlight) {
+    function highlightLinkedDayTile(dateKey, highlight, endMonth, endDay) {
         // dateKey is "month-day" with 1-indexed month
         const [month, day] = dateKey.split('-').map(Number);
-        const monthIdx = month - 1; // Convert to 0-indexed
+        const startMonthIdx = month - 1; // Convert to 0-indexed
+        const year = new Date().getFullYear();
 
-        // Find the day segment
-        const segment = document.querySelector(`.day-segment[data-month="${monthIdx}"][data-day="${day}"]`);
-        if (segment) {
-            if (highlight) {
-                segment.classList.add('linked-hover');
-            } else {
-                segment.classList.remove('linked-hover');
+        // Determine if this is a multi-day event
+        const hasEndDate = endMonth !== undefined && endDay !== undefined;
+        const endMonthIdx = hasEndDate ? endMonth : startMonthIdx;
+        const finalEndDay = hasEndDate ? endDay : day;
+
+        // Iterate through all days in the range
+        const startDoy = getDayOfYearFromMonthDay(startMonthIdx, day, year);
+        const endDoy = getDayOfYearFromMonthDay(endMonthIdx, finalEndDay, year);
+
+        for (let doy = startDoy; doy <= endDoy; doy++) {
+            const { month: m, day: d } = getMonthDayFromDayOfYear(doy, year);
+
+            // Find the day segment
+            const segment = document.querySelector(`.day-segment[data-month="${m}"][data-day="${d}"]`);
+            if (segment) {
+                if (highlight) {
+                    segment.classList.add('linked-hover');
+                } else {
+                    segment.classList.remove('linked-hover');
+                }
             }
+
+            // Also highlight any event subsegments for multi-event days
+            const subsegments = document.querySelectorAll(`.event-subsegment[data-month="${m}"][data-day="${d}"]`);
+            subsegments.forEach(sub => {
+                if (highlight) {
+                    sub.classList.add('linked-hover');
+                } else {
+                    sub.classList.remove('linked-hover');
+                }
+            });
         }
-
-        // Also highlight any event subsegments for multi-event days
-        const subsegments = document.querySelectorAll(`.event-subsegment[data-month="${monthIdx}"][data-day="${day}"]`);
-        subsegments.forEach(sub => {
-            if (highlight) {
-                sub.classList.add('linked-hover');
-            } else {
-                sub.classList.remove('linked-hover');
-            }
-        });
     }
 
     function handleAnnotationHover(e) {
         const dateKey = e.target.getAttribute('data-date-key');
-        highlightLinkedDayTile(dateKey, true);
+        const endMonthAttr = e.target.getAttribute('data-end-month');
+        const endDayAttr = e.target.getAttribute('data-end-day');
+        const endMonth = endMonthAttr !== null ? parseInt(endMonthAttr) : undefined;
+        const endDay = endDayAttr !== null ? parseInt(endDayAttr) : undefined;
+
+        highlightLinkedDayTile(dateKey, true, endMonth, endDay);
         highlightLinkedAnnotations(dateKey, true);
     }
 
     function handleAnnotationLeave(e) {
         const dateKey = e.target.getAttribute('data-date-key');
-        highlightLinkedDayTile(dateKey, false);
+        const endMonthAttr = e.target.getAttribute('data-end-month');
+        const endDayAttr = e.target.getAttribute('data-end-day');
+        const endMonth = endMonthAttr !== null ? parseInt(endMonthAttr) : undefined;
+        const endDay = endDayAttr !== null ? parseInt(endDayAttr) : undefined;
+
+        highlightLinkedDayTile(dateKey, false, endMonth, endDay);
         highlightLinkedAnnotations(dateKey, false);
     }
 
@@ -1647,6 +1739,12 @@
         selectedColor = DEFAULT_COLOR;
         document.querySelectorAll('.color-option').forEach(opt => {
             opt.classList.toggle('selected', opt.getAttribute('data-color') === DEFAULT_COLOR);
+        });
+
+        // Reset visibility toggle to Show
+        selectedHidden = false;
+        document.querySelectorAll('.visibility-btn').forEach(btn => {
+            btn.classList.toggle('selected', btn.getAttribute('data-hidden') === 'false');
         });
 
         // Hide delete button when adding new
@@ -1737,10 +1835,12 @@
             if (typeof annotation === 'object') {
                 annotation.title = text;
                 annotation.color = selectedColor;
+                annotation.hidden = selectedHidden;
             } else {
                 annotations[editingAnnotation.dateKey][editingAnnotation.index] = {
                     title: text,
-                    color: selectedColor
+                    color: selectedColor,
+                    hidden: selectedHidden
                 };
             }
             if (!currentUser) {
@@ -1755,7 +1855,8 @@
             // Build annotation object
             const newAnnotation = {
                 title: text,
-                color: selectedColor
+                color: selectedColor,
+                hidden: selectedHidden
             };
 
             // Add end date for multi-day events
@@ -1792,7 +1893,8 @@
                     text,
                     endMonth,
                     endDay,
-                    selectedColor
+                    selectedColor,
+                    selectedHidden
                 );
                 if (event) {
                     newAnnotation.id = event.id;
@@ -1881,6 +1983,7 @@
                     ? annotation.color
                     : DEFAULT_COLOR;
                 const title = typeof annotation === 'string' ? annotation : annotation.title;
+                const hidden = typeof annotation === 'object' && annotation.hidden;
 
                 // Check for multi-day event
                 const hasEndDate = typeof annotation === 'object' && annotation.endMonth !== undefined;
@@ -1890,7 +1993,8 @@
                     const startDoy = getDayOfYearFromMonthDay(startMonth, day, year);
                     const endDoy = getDayOfYearFromMonthDay(annotation.endMonth, annotation.endDay, year);
                     const duration = endDoy - startDoy + 1;
-                    const faded = duration > 4;
+                    // Hidden multi-day events get extra fading, regular multi-day > 4 days also faded
+                    const faded = hidden ? true : (duration > 4);
 
                     // Iterate through days in range
                     let currentDoy = startDoy;
@@ -1900,7 +2004,7 @@
                     while (currentDoy <= endDoy) {
                         const dayKey = `${currentMonth}-${currentDay}`;
                         if (!dayEventsMap[dayKey]) dayEventsMap[dayKey] = [];
-                        dayEventsMap[dayKey].push({ color, title, faded });
+                        dayEventsMap[dayKey].push({ color, title, faded, hidden });
 
                         // Move to next day
                         currentDay++;
@@ -1911,10 +2015,10 @@
                         currentDoy++;
                     }
                 } else {
-                    // Single day event
+                    // Single day event - hidden events get faded
                     const dayKey = `${startMonth}-${day}`;
                     if (!dayEventsMap[dayKey]) dayEventsMap[dayKey] = [];
-                    dayEventsMap[dayKey].push({ color, title, faded: false });
+                    dayEventsMap[dayKey].push({ color, title, faded: hidden, hidden });
                 }
             });
         }
@@ -1932,26 +2036,37 @@
 
             segment.classList.add('has-event');
 
-            // Get unique colors while preserving order, track faded state
+            // Get unique colors while preserving order, track faded and hidden state
             const uniqueColors = [];
             const colorToTitles = {};
             const colorToFaded = {};
+            const colorToHidden = {};
             eventsList.forEach(evt => {
                 if (!colorToTitles[evt.color]) {
                     colorToTitles[evt.color] = [];
                     colorToFaded[evt.color] = evt.faded;
+                    colorToHidden[evt.color] = evt.hidden;
                     uniqueColors.push(evt.color);
                 }
                 colorToTitles[evt.color].push(evt.title);
                 // If any event with this color is not faded, don't fade it
                 if (!evt.faded) colorToFaded[evt.color] = false;
+                // If any event with this color is not hidden, don't hide it
+                if (!evt.hidden) colorToHidden[evt.color] = false;
             });
+
+            // Calculate opacity: hidden events are more muted, faded (long multi-day) also muted
+            const getOpacity = (color) => {
+                if (colorToHidden[color]) return 0.25; // Hidden events very muted
+                if (colorToFaded[color]) return 0.4;   // Long multi-day events somewhat muted
+                return 1;
+            };
 
             if (uniqueColors.length === 1) {
                 // Single color - just set the fill
                 const color = uniqueColors[0];
                 segment.style.fill = color;
-                segment.style.opacity = colorToFaded[color] ? 0.4 : 1;
+                segment.style.opacity = getOpacity(color);
             } else {
                 // Multiple colors - create radial sub-segments
                 segment.style.fill = 'transparent';
@@ -1976,7 +2091,7 @@
                     subPath.setAttribute('data-color', color);
                     subPath.setAttribute('data-titles', colorToTitles[color].join(', '));
                     subPath.style.fill = color;
-                    subPath.style.opacity = colorToFaded[color] ? 0.4 : 1;
+                    subPath.style.opacity = getOpacity(color);
 
                     // Add hover handlers for tooltip
                     subPath.addEventListener('mouseenter', handleSubsegmentHover);
@@ -2004,6 +2119,10 @@
         tooltip.style.top = (e.clientY + 10) + 'px';
 
         e.target.addEventListener('mousemove', handleSubsegmentMove);
+
+        // Highlight linked annotation text and lines (including multi-day events containing this date)
+        const eventDateKeys = findEventsContainingDate(month, day);
+        eventDateKeys.forEach(key => highlightLinkedAnnotations(key, true));
     }
 
     function handleSubsegmentMove(e) {
@@ -2014,6 +2133,12 @@
     function handleSubsegmentLeave(e) {
         tooltip.style.display = 'none';
         e.target.removeEventListener('mousemove', handleSubsegmentMove);
+
+        // Remove linked annotation highlighting
+        const month = parseInt(e.target.getAttribute('data-month'));
+        const day = parseInt(e.target.getAttribute('data-day'));
+        const eventDateKeys = findEventsContainingDate(month, day);
+        eventDateKeys.forEach(key => highlightLinkedAnnotations(key, false));
     }
 
     function saveAnnotationsLocal() {
@@ -2359,6 +2484,15 @@
                 document.querySelectorAll('.color-option').forEach(b => b.classList.remove('selected'));
                 e.target.classList.add('selected');
                 selectedColor = e.target.getAttribute('data-color');
+            });
+        });
+
+        // Visibility toggle event listeners
+        document.querySelectorAll('.visibility-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('.visibility-btn').forEach(b => b.classList.remove('selected'));
+                e.target.classList.add('selected');
+                selectedHidden = e.target.getAttribute('data-hidden') === 'true';
             });
         });
 

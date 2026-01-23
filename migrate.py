@@ -20,6 +20,7 @@ migrations = [
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS end_month INTEGER",
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS end_day INTEGER",
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS color VARCHAR(7) DEFAULT '#ff6360'",
+    "ALTER TABLE events ADD COLUMN IF NOT EXISTS hidden BOOLEAN DEFAULT FALSE",
 
     # User birthday columns
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS birthday_month INTEGER",
