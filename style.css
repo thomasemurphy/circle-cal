@@ -302,6 +302,7 @@ body {
     stroke: var(--text-muted);
     stroke-width: 0.15;
     transition: stroke-width 0.15s ease;
+    display: none; /* Hidden for now - to be redesigned later */
 }
 
 .annotation-text {
