@@ -27,6 +27,7 @@ class EventCreate(BaseModel):
     end_day: Optional[int] = Field(None, ge=1, le=31)
     title: str = Field(min_length=1, max_length=500)
     color: Optional[str] = Field(None, max_length=7)
+    hidden: Optional[bool] = False
 
 
 class EventUpdate(BaseModel):
@@ -36,6 +37,7 @@ class EventUpdate(BaseModel):
     end_day: Optional[int] = Field(None, ge=1, le=31)
     title: Optional[str] = Field(None, min_length=1, max_length=500)
     color: Optional[str] = Field(None, max_length=7)
+    hidden: Optional[bool] = None
 
 
 class EventResponse(BaseModel):
@@ -46,6 +48,7 @@ class EventResponse(BaseModel):
     end_day: Optional[int]
     title: str
     color: Optional[str]
+    hidden: bool
     created_at: datetime
     updated_at: datetime
 

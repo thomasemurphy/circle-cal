@@ -223,11 +223,6 @@ body {
     filter: brightness(1.15);
 }
 
-.day-segment.linked-hover {
-    transform-origin: center;
-    transform: scale(1.05);
-}
-
 /* Event subsegments for multi-event days */
 .event-subsegment {
     stroke: var(--border-color);
@@ -307,6 +302,7 @@ body {
     stroke: var(--text-muted);
     stroke-width: 0.15;
     transition: stroke-width 0.15s ease;
+    display: none; /* Hidden for now - to be redesigned later */
 }
 
 .annotation-text {
@@ -448,6 +444,33 @@ body {
 }
 
 .color-option.selected {
+    border-color: var(--text-primary);
+}
+
+.visibility-toggle {
+    display: flex;
+    gap: 6px;
+    margin-top: 12px;
+}
+
+.visibility-btn {
+    padding: 6px 12px;
+    border: 1px solid var(--input-border);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s ease;
+}
+
+.visibility-btn:hover {
+    background: var(--bg-primary);
+}
+
+.visibility-btn.selected {
+    background: var(--text-primary);
+    color: var(--bg-primary);
     border-color: var(--text-primary);
 }
 
