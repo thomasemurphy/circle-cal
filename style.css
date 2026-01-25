@@ -301,7 +301,7 @@ body {
 .annotation-line {
     stroke: var(--text-muted);
     stroke-width: 0.15;
-    transition: stroke-width 0.15s ease;
+    transition: stroke-width 0.15s ease, opacity 0.3s ease;
     display: none; /* Hidden for now - to be redesigned later */
 }
 
@@ -309,7 +309,7 @@ body {
     font-size: 7px;
     fill: #ff6360;
     font-weight: 400;
-    transition: font-size 0.1s ease, filter 0.15s ease;
+    transition: font-size 0.1s ease, filter 0.15s ease, opacity 0.3s ease;
     cursor: grab;
 }
 
@@ -385,6 +385,42 @@ body {
     padding: 6px 0;
     border-bottom: 1px solid var(--border-light);
     color: var(--text-secondary);
+}
+
+#also-on-this-day {
+    margin-top: 12px;
+}
+
+.also-on-day-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 0 0 8px 0;
+}
+
+.also-on-day-btn {
+    display: block;
+    width: 100%;
+    padding: 8px 12px;
+    margin-bottom: 6px;
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.also-on-day-btn:hover {
+    background: var(--hover-bg);
+    border-color: var(--text-muted);
+    color: var(--text-primary);
+}
+
+.also-on-day-btn:last-child {
+    margin-bottom: 0;
 }
 
 .delete-btn {
