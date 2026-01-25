@@ -634,6 +634,195 @@
         };
     }
 
+    // Priority-based label visibility functions
+    function calculateLabelPriority(dateKey, annotation) {
+        const today = new Date();
+        const currentYear = today.getFullYear();
+        const [month, day] = dateKey.split('-').map(Number);
+        const eventDate = new Date(currentYear, month - 1, day);
+
+        let priority = 0;
+
+        // 1. Proximity to today: max 50 points, -1 per week decay
+        const daysDiff = Math.abs(Math.round((eventDate - today) / (1000 * 60 * 60 * 24)));
+        const weeksDiff = daysDiff / 7;
+        const proximityScore = Math.max(0, 50 - weeksDiff);
+        priority += proximityScore;
+
+        // 2. Future bias: +10 points for future events
+        if (eventDate >= today) {
+            priority += 10;
+        }
+
+        // 3. Duration bonus: 2-4 days (+15), 1 day (+5), 5+ days (+0)
+        if (typeof annotation === 'object' && annotation.endMonth !== undefined) {
+            const startDoy = getDayOfYearFromMonthDay(month - 1, day, currentYear);
+            const endDoy = getDayOfYearFromMonthDay(annotation.endMonth, annotation.endDay, currentYear);
+            const duration = endDoy - startDoy + 1;
+
+            if (duration >= 2 && duration <= 4) {
+                priority += 15;
+            } else if (duration === 1) {
+                priority += 5;
+            }
+            // 5+ days: +0
+        } else {
+            // Single day event
+            priority += 5;
+        }
+
+        return priority;
+    }
+
+    function detectIsolatedLabels(labelDataArray) {
+        const currentYear = new Date().getFullYear();
+        const totalDays = getDaysInYear(currentYear);
+
+        // Calculate day-of-year for each label
+        labelDataArray.forEach(label => {
+            const dateKey = label.id.split('-').slice(0, 2).join('-');
+            const [month, day] = dateKey.split('-').map(Number);
+            label.dayOfYear = getDayOfYearFromMonthDay(month - 1, day, currentYear);
+        });
+
+        // Check isolation (no neighbors within 30 days)
+        labelDataArray.forEach(label => {
+            let hasNeighbor = false;
+            for (const other of labelDataArray) {
+                if (other === label) continue;
+                let dayDiff = Math.abs(label.dayOfYear - other.dayOfYear);
+                // Handle year wrap-around
+                dayDiff = Math.min(dayDiff, totalDays - dayDiff);
+                if (dayDiff <= 30) {
+                    hasNeighbor = true;
+                    break;
+                }
+            }
+            label.isIsolated = !hasNeighbor;
+        });
+    }
+
+    function detectLabelCollisions(labelDataArray) {
+        // Returns array of collision groups (each group is array of label indices)
+        const collisionGroups = [];
+        const visited = new Set();
+
+        function boxesOverlap(a, b) {
+            const padding = 2; // Small padding for near-misses
+            return !(a.x + a.width + padding < b.x ||
+                     b.x + b.width + padding < a.x ||
+                     a.y + a.height + padding < b.y ||
+                     b.y + b.height + padding < a.y);
+        }
+
+        function getBoundingBox(label) {
+            return {
+                x: label.x - label.width / 2,
+                y: label.y - label.height,
+                width: label.width,
+                height: label.height
+            };
+        }
+
+        // Find connected components of overlapping labels
+        for (let i = 0; i < labelDataArray.length; i++) {
+            if (visited.has(i)) continue;
+
+            const group = [];
+            const stack = [i];
+
+            while (stack.length > 0) {
+                const idx = stack.pop();
+                if (visited.has(idx)) continue;
+                visited.add(idx);
+                group.push(idx);
+
+                const boxA = getBoundingBox(labelDataArray[idx]);
+
+                for (let j = 0; j < labelDataArray.length; j++) {
+                    if (visited.has(j)) continue;
+                    const boxB = getBoundingBox(labelDataArray[j]);
+                    if (boxesOverlap(boxA, boxB)) {
+                        stack.push(j);
+                    }
+                }
+            }
+
+            if (group.length > 0) {
+                collisionGroups.push(group);
+            }
+        }
+
+        return collisionGroups;
+    }
+
+    function calculateVisibleLabels(labelDataArray, collisionGroups) {
+        // Determine how many labels to show per group based on zoom
+        // At zoom 1: show 1, at zoom 15: show 4
+        const labelsPerGroup = Math.min(4, Math.max(1, Math.floor(1 + (currentZoom - 1) * 3 / 14)));
+
+        // First, mark all labels as hidden
+        labelDataArray.forEach(label => {
+            label.shouldShow = false;
+        });
+
+        // Process each collision group
+        collisionGroups.forEach(group => {
+            // Get labels in this group with their priorities
+            const labelsWithPriority = group.map(idx => {
+                const label = labelDataArray[idx];
+                const dateKey = label.id.split('-').slice(0, 2).join('-');
+                const index = parseInt(label.id.split('-')[2] || '0');
+                const annotationList = annotations[dateKey] || [];
+                const annotation = annotationList[index] || {};
+
+                return {
+                    idx,
+                    label,
+                    priority: calculateLabelPriority(dateKey, annotation),
+                    isIsolated: label.isIsolated
+                };
+            });
+
+            // Sort by priority (highest first)
+            labelsWithPriority.sort((a, b) => b.priority - a.priority);
+
+            // Show isolated labels always, plus top N by priority
+            let shown = 0;
+            labelsWithPriority.forEach(item => {
+                if (item.isIsolated) {
+                    item.label.shouldShow = true;
+                } else if (shown < labelsPerGroup) {
+                    item.label.shouldShow = true;
+                    shown++;
+                }
+            });
+        });
+    }
+
+    function updateLabelVisibility() {
+        if (labelData.length === 0) return;
+
+        // Only process labels with visible tiles
+        const visibleLabels = labelData.filter(d => d.tileVisible !== false);
+
+        const collisionGroups = detectLabelCollisions(visibleLabels);
+        calculateVisibleLabels(visibleLabels, collisionGroups);
+
+        // Apply visibility via opacity
+        labelData.forEach(data => {
+            const { text, line, shouldShow, tileVisible } = data;
+            if (!text) return;
+
+            // Skip labels with hidden tiles (already handled by applyLabelPositions)
+            if (tileVisible === false) return;
+
+            const opacity = shouldShow ? '1' : '0';
+            text.style.opacity = opacity;
+            if (line) line.style.opacity = opacity;
+        });
+    }
+
     function createArcPath(startAngle, endAngle, innerR, outerR) {
         const start1 = polarToCartesian(startAngle, outerR);
         const end1 = polarToCartesian(endAngle, outerR);
@@ -870,7 +1059,7 @@
         group.setAttribute('id', 'annotation-markers');
 
         const totalDays = getDaysInYear(year);
-        const DEFAULT_LABEL_RADIUS = OUTER_RADIUS + 6;
+        const DEFAULT_LABEL_RADIUS = OUTER_RADIUS + 3;
 
         for (const [dateKey, annList] of Object.entries(annotations)) {
             if (!annList || annList.length === 0) continue;
@@ -921,7 +1110,7 @@
                     textX = annotation.x;
                     textY = annotation.y;
                 } else {
-                    const textRadius = DEFAULT_LABEL_RADIUS + (index * 12);
+                    const textRadius = DEFAULT_LABEL_RADIUS + (index * 10);
                     const textPos = polarToCartesian(angle, textRadius);
                     textX = textPos.x;
                     textY = textPos.y;
@@ -1044,29 +1233,11 @@
         let newX = svgP.x - dragOffset.x;
         let newY = svgP.y - dragOffset.y;
 
-        // Constrain: not on date tiles (between INNER_RADIUS and OUTER_RADIUS)
-        const distFromCenter = Math.sqrt(newX * newX + newY * newY);
-        if (distFromCenter > INNER_RADIUS && distFromCenter < OUTER_RADIUS) {
-            // Push to nearest valid position (inside or outside the ring)
-            const midRing = (INNER_RADIUS + OUTER_RADIUS) / 2;
-            const targetRadius = distFromCenter < midRing ? CENTER_RADIUS : OUTER_RADIUS + 10;
-            const angle = Math.atan2(newY, newX);
-            newX = Math.cos(angle) * targetRadius;
-            newY = Math.sin(angle) * targetRadius;
-        }
-
         // Update text position and original position (for viewport following)
         draggedAnnotation.element.setAttribute('x', newX);
         draggedAnnotation.element.setAttribute('y', newY);
         draggedAnnotation.element.setAttribute('data-original-x', newX);
         draggedAnnotation.element.setAttribute('data-original-y', newY);
-
-        // Update text anchor based on position
-        if (newX > 0) {
-            draggedAnnotation.element.setAttribute('text-anchor', 'start');
-        } else {
-            draggedAnnotation.element.setAttribute('text-anchor', 'end');
-        }
 
         // Update corresponding line
         const line = document.querySelector(
@@ -1163,8 +1334,9 @@
         selectedDate = { month: month - 1, day };
         modalDate.textContent = formatDate(month - 1, day, true);
 
-        // Hide existing annotations list when editing
+        // Hide existing annotations list and "also on this day" when editing
         existingAnnotations.innerHTML = '';
+        document.getElementById('also-on-this-day').innerHTML = '';
 
         // Set current values
         annotationInput.value = title;
@@ -1341,6 +1513,9 @@
 
         if (labelData.length === 0) return;
 
+        // Calculate isolation status for priority-based visibility
+        detectIsolatedLabels(labelData);
+
         runLabeler();
     }
 
@@ -1385,133 +1560,41 @@
 
         // Update DOM
         applyLabelPositions();
+
+        // Apply priority-based visibility (collision detection)
+        updateLabelVisibility();
     }
 
     function applyLabelPositions() {
-        const vb = getViewBox();
-        const padding = 10 / currentZoom;
-
         labelData.forEach(data => {
             const { text, line, anchorX, anchorY, x, y } = data;
             if (!text) return;
 
-            // Check if anchor (tile) is visible
-            let tileVisible = true;
-            if (currentZoom > 1.1) {
-                const margin = OUTER_RADIUS - INNER_RADIUS;
-                tileVisible = (
-                    anchorX >= vb.x - margin && anchorX <= vb.x + vb.w + margin &&
-                    anchorY >= vb.y - margin && anchorY <= vb.y + vb.h + margin
-                );
-            }
-
-            if (!tileVisible) {
-                text.style.display = 'none';
-                if (line) line.style.display = 'none';
-                return;
-            }
+            // Labels stay at their fixed positions - no clamping or movement
+            data.tileVisible = true;
 
             text.style.display = '';
             if (line) line.style.display = '';
 
-            // Clamp position to viewport if needed
-            let newX = x;
-            let newY = y;
-
-            if (currentZoom > 1.1) {
-                newX = Math.max(vb.x + padding, Math.min(vb.x + vb.w - padding, newX));
-                newY = Math.max(vb.y + padding, Math.min(vb.y + vb.h - padding, newY));
-            }
-
-            text.setAttribute('x', newX);
-            text.setAttribute('y', newY);
-
-            // Update text anchor based on position relative to anchor
-            if (newX > anchorX) {
-                text.setAttribute('text-anchor', 'start');
-            } else {
-                text.setAttribute('text-anchor', 'end');
-            }
-
-            // Update line - connect to closest edge of text bounding box
-            if (line) {
-                const bbox = text.getBBox();
-                const boxLeft = bbox.x;
-                const boxRight = bbox.x + bbox.width;
-                const boxTop = bbox.y;
-                const boxBottom = bbox.y + bbox.height;
-                const boxCenterX = bbox.x + bbox.width / 2;
-                const boxCenterY = bbox.y + bbox.height / 2;
-
-                // Find closest point on rectangle edge to anchor
-                let closestX, closestY;
-
-                // Clamp anchor to box bounds to find closest point
-                const clampedX = Math.max(boxLeft, Math.min(boxRight, anchorX));
-                const clampedY = Math.max(boxTop, Math.min(boxBottom, anchorY));
-
-                // If anchor is inside the box, use center
-                if (anchorX >= boxLeft && anchorX <= boxRight && anchorY >= boxTop && anchorY <= boxBottom) {
-                    closestX = boxCenterX;
-                    closestY = boxCenterY;
-                } else {
-                    // Find which edge to connect to
-                    const distLeft = Math.abs(anchorX - boxLeft);
-                    const distRight = Math.abs(anchorX - boxRight);
-                    const distTop = Math.abs(anchorY - boxTop);
-                    const distBottom = Math.abs(anchorY - boxBottom);
-
-                    // Check if anchor is more to the side or above/below
-                    const minHoriz = Math.min(distLeft, distRight);
-                    const minVert = Math.min(distTop, distBottom);
-
-                    if (anchorX < boxLeft) {
-                        // Anchor is to the left
-                        closestX = boxLeft;
-                        closestY = clampedY;
-                    } else if (anchorX > boxRight) {
-                        // Anchor is to the right
-                        closestX = boxRight;
-                        closestY = clampedY;
-                    } else if (anchorY < boxTop) {
-                        // Anchor is above
-                        closestX = clampedX;
-                        closestY = boxTop;
-                    } else {
-                        // Anchor is below
-                        closestX = clampedX;
-                        closestY = boxBottom;
-                    }
-                }
-
-                // Add small gap from the edge
-                const lineGap = 2;
-                const dx = closestX - anchorX;
-                const dy = closestY - anchorY;
-                const lineLen = Math.sqrt(dx * dx + dy * dy);
-                const lineEndX = lineLen > lineGap ? closestX - (dx / lineLen) * lineGap : closestX;
-                const lineEndY = lineLen > lineGap ? closestY - (dy / lineLen) * lineGap : closestY;
-
-                line.setAttribute('x2', lineEndX);
-                line.setAttribute('y2', lineEndY);
-            }
+            text.setAttribute('x', x);
+            text.setAttribute('y', y);
         });
     }
 
     function updateEventTextPositions() {
-        // Only update visibility and clamping during pan/zoom
-        // Don't re-run labeler - that only happens when annotations change
+        // Update label visibility during pan/zoom (labels stay at fixed positions)
         applyLabelPositions();
     }
 
     function handleDayHover(e) {
         const month = parseInt(e.target.getAttribute('data-month'));
         const day = parseInt(e.target.getAttribute('data-day'));
-        const dateKey = getDateKey(month, day);
 
         let text = formatDate(month, day);
-        if (annotations[dateKey] && annotations[dateKey].length > 0) {
-            const titles = annotations[dateKey].map(a => typeof a === 'string' ? a : a.title);
+
+        // Get all event titles that span this date (including multi-day events)
+        const titles = getEventTitlesForDate(month, day);
+        if (titles.length > 0) {
             text += ': ' + titles.join(', ');
         }
 
@@ -1525,6 +1608,37 @@
         // Highlight linked annotation text and lines (including multi-day events containing this date)
         const eventDateKeys = findEventsContainingDate(month, day);
         eventDateKeys.forEach(key => highlightLinkedAnnotations(key, true));
+    }
+
+    function getEventTitlesForDate(month, day) {
+        // Returns array of event titles for all events that contain the given date
+        // month is 0-indexed
+        const year = new Date().getFullYear();
+        const targetDoy = getDayOfYearFromMonthDay(month, day, year);
+        const titles = [];
+
+        for (const [dateKey, annList] of Object.entries(annotations)) {
+            if (!annList || annList.length === 0) continue;
+
+            const [startMonth, startDay] = dateKey.split('-').map(Number);
+            const startMonthIdx = startMonth - 1; // Convert to 0-indexed
+
+            for (const annotation of annList) {
+                const hasEndDate = typeof annotation === 'object' && annotation.endMonth !== undefined;
+                const endMonthIdx = hasEndDate ? annotation.endMonth : startMonthIdx;
+                const endDay = hasEndDate ? annotation.endDay : startDay;
+
+                const startDoy = getDayOfYearFromMonthDay(startMonthIdx, startDay, year);
+                const endDoy = getDayOfYearFromMonthDay(endMonthIdx, endDay, year);
+
+                if (targetDoy >= startDoy && targetDoy <= endDoy) {
+                    const title = typeof annotation === 'string' ? annotation : annotation.title;
+                    titles.push(title);
+                }
+            }
+        }
+
+        return titles;
     }
 
     function handleDayLeave(e) {
@@ -1732,8 +1846,11 @@
             modalDate.textContent = formatDate(selectedDate.month, selectedDate.day, true);
         }
 
-        // For new events, don't show existing (could be complex with ranges)
+        // Clear existing annotations (used for edit mode)
         existingAnnotations.innerHTML = '';
+
+        // Show "Also on this day" buttons for existing events on this date
+        renderAlsoOnThisDay(selectedDate.month, selectedDate.day);
 
         // Reset color picker to default
         selectedColor = DEFAULT_COLOR;
@@ -1794,6 +1911,53 @@
             });
         } else {
             existingAnnotations.innerHTML = '';
+        }
+    }
+
+    function renderAlsoOnThisDay(month, day) {
+        const alsoOnThisDay = document.getElementById('also-on-this-day');
+        // Find all events that contain this date (including multi-day events)
+        // month is 0-indexed
+        const year = new Date().getFullYear();
+        const targetDoy = getDayOfYearFromMonthDay(month, day, year);
+        const eventsOnDay = [];
+
+        for (const [dateKey, annList] of Object.entries(annotations)) {
+            if (!annList || annList.length === 0) continue;
+
+            const [startMonth, startDay] = dateKey.split('-').map(Number);
+            const startMonthIdx = startMonth - 1; // Convert to 0-indexed
+
+            annList.forEach((annotation, index) => {
+                const hasEndDate = typeof annotation === 'object' && annotation.endMonth !== undefined;
+                const endMonthIdx = hasEndDate ? annotation.endMonth : startMonthIdx;
+                const endDay = hasEndDate ? annotation.endDay : startDay;
+
+                const startDoy = getDayOfYearFromMonthDay(startMonthIdx, startDay, year);
+                const endDoy = getDayOfYearFromMonthDay(endMonthIdx, endDay, year);
+
+                if (targetDoy >= startDoy && targetDoy <= endDoy) {
+                    const title = typeof annotation === 'string' ? annotation : annotation.title;
+                    eventsOnDay.push({ dateKey, index, title });
+                }
+            });
+        }
+
+        if (eventsOnDay.length > 0) {
+            alsoOnThisDay.innerHTML = '<p class="also-on-day-label">Also on this day:</p>' +
+                eventsOnDay.map(e =>
+                    `<button class="also-on-day-btn" data-date-key="${e.dateKey}" data-index="${e.index}">${e.title}</button>`
+                ).join('');
+
+            alsoOnThisDay.querySelectorAll('.also-on-day-btn').forEach(btn => {
+                btn.addEventListener('click', (evt) => {
+                    const dateKey = evt.target.getAttribute('data-date-key');
+                    const index = parseInt(evt.target.getAttribute('data-index'));
+                    openEditModal(dateKey, index);
+                });
+            });
+        } else {
+            alsoOnThisDay.innerHTML = '';
         }
     }
 
@@ -2168,7 +2332,7 @@
 
     function calculateInitialAnnotationPosition(angle) {
         const vb = getViewBox();
-        const DEFAULT_LABEL_RADIUS = OUTER_RADIUS + 6;
+        const DEFAULT_LABEL_RADIUS = OUTER_RADIUS + 3;
         const INSIDE_LABEL_RADIUS = CENTER_RADIUS - 20;
 
         // Try outside position first (default behavior)
@@ -2193,16 +2357,6 @@
         let targetX = vbCenterX + Math.cos(rad) * offsetRadius;
         let targetY = vbCenterY + Math.sin(rad) * offsetRadius;
 
-        // Make sure it's not in the date ring
-        const distFromCenter = Math.sqrt(targetX * targetX + targetY * targetY);
-        if (distFromCenter > INNER_RADIUS && distFromCenter < OUTER_RADIUS) {
-            const angleFromOrigin = Math.atan2(targetY, targetX);
-            const midRing = (INNER_RADIUS + OUTER_RADIUS) / 2;
-            const targetRadius = distFromCenter < midRing ? CENTER_RADIUS : OUTER_RADIUS + 10;
-            targetX = Math.cos(angleFromOrigin) * targetRadius;
-            targetY = Math.sin(angleFromOrigin) * targetRadius;
-        }
-
         return { x: targetX, y: targetY };
     }
 
@@ -2213,6 +2367,7 @@
         updateDynamicFontSizes();
         updateCenterTextPosition();
         updateEventTextPositions();
+        updateLabelVisibility();
     }
 
     function updateDynamicFontSizes() {
