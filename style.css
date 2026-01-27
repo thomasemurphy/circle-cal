@@ -861,3 +861,243 @@ body {
 #friends-close-btn:hover {
     background: var(--border-color);
 }
+
+/* Header layout */
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* View toggle */
+.view-toggle {
+    display: flex;
+    gap: 4px;
+    background: var(--bg-secondary);
+    padding: 3px;
+    border-radius: 8px;
+}
+
+.view-btn {
+    background: none;
+    border: none;
+    border-radius: 5px;
+    padding: 5px 8px;
+    cursor: pointer;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+
+.view-btn:hover {
+    color: var(--text-secondary);
+}
+
+.view-btn.active {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* View containers */
+.view-container {
+    display: none;
+}
+
+.view-container.active {
+    display: block;
+}
+
+/* List view */
+.list-wrapper {
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+    scroll-behavior: smooth;
+}
+
+#list-calendar {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+.list-month-header {
+    position: sticky;
+    top: 0;
+    background: var(--bg-primary);
+    padding: 12px 16px;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-color);
+    z-index: 10;
+}
+
+.list-day {
+    display: flex;
+    align-items: flex-start;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-light);
+    cursor: pointer;
+    transition: background 0.15s ease;
+    min-height: 44px;
+    user-select: none;
+}
+
+.list-day:hover {
+    background: var(--segment-hover);
+}
+
+.list-day.today {
+    background: var(--range-selected);
+}
+
+.list-day.today:hover {
+    background: var(--range-selected-weekend);
+}
+
+.list-day.weekend {
+    background: var(--segment-weekend);
+}
+
+.list-day.weekend:hover {
+    background: var(--segment-hover);
+}
+
+.list-day-date {
+    width: 70px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.list-day-number {
+    font-size: 18px;
+    font-weight: 500;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+
+.list-day-weekday {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.list-day-events {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-top: 2px;
+}
+
+.list-event {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--text-primary);
+    transition: filter 0.15s ease;
+}
+
+.list-event:hover {
+    filter: brightness(1.1);
+}
+
+.list-event-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.list-event-title {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.list-event.hidden-event {
+    opacity: 0.5;
+}
+
+/* Multi-day event overlay */
+#list-multiday-overlay {
+    position: absolute;
+    top: 0;
+    left: 70px;
+    right: 0;
+    pointer-events: none;
+    z-index: 5;
+}
+
+.list-multiday-event {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    pointer-events: auto;
+    cursor: pointer;
+    border-left: 4px solid;
+    transition: filter 0.15s ease;
+}
+
+/* Disable pointer events on multi-day events during drag selection */
+#list-multiday-overlay.dragging .list-multiday-event {
+    pointer-events: none;
+}
+
+.list-multiday-event:hover {
+    filter: brightness(1.1);
+}
+
+.list-multiday-event.hidden-event {
+    opacity: 0.5;
+}
+
+.list-multiday-event-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 3px;
+}
+
+.list-multiday-event-title {
+    flex: 1;
+}
+
+.list-multiday-event-range {
+    font-size: 11px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+/* List view range selection overlay (green hue) */
+#list-drag-highlight {
+    position: absolute;
+    left: 0;
+    right: 0;
+    background: rgba(0, 200, 134, 0.35);
+    pointer-events: none;
+    z-index: 10;
+    border-radius: 4px;
+}
+
+[data-theme="dark"] #list-drag-highlight {
+    background: rgba(0, 200, 134, 0.3);
+}
