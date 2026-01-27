@@ -995,6 +995,10 @@ body {
     padding-top: 2px;
 }
 
+.list-day-events.multi-event {
+    flex-direction: row;
+}
+
 .list-event {
     display: flex;
     align-items: center;
@@ -1026,6 +1030,16 @@ body {
 
 .list-event.hidden-event {
     opacity: 0.5;
+}
+
+.list-event.compact {
+    overflow: hidden;
+}
+
+.list-event.compact .list-event-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* Multi-day event overlay */
