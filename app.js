@@ -2819,40 +2819,6 @@
                 dateCol.appendChild(weekdayName);
                 dayElement.appendChild(dateCol);
 
-                // Events column (single-day events only)
-                const eventsCol = document.createElement('div');
-                eventsCol.className = 'list-day-events';
-
-                // Get single-day events for this day
-                const dayEvents = getEventsForListDay(month, day, year, true);
-                dayEvents.forEach(event => {
-                    const eventEl = document.createElement('div');
-                    eventEl.className = 'list-event';
-                    eventEl.style.backgroundColor = hexToRgba(event.color, 0.2);
-                    if (event.hidden) eventEl.classList.add('hidden-event');
-
-                    const dot = document.createElement('span');
-                    dot.className = 'list-event-dot';
-                    dot.style.backgroundColor = event.color;
-
-                    const title = document.createElement('span');
-                    title.className = 'list-event-title';
-                    title.textContent = event.title;
-
-                    eventEl.appendChild(dot);
-                    eventEl.appendChild(title);
-
-                    // Click on event to edit it
-                    eventEl.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        openEditModalFromList(event.dateKey, event.index, month, day);
-                    });
-
-                    eventsCol.appendChild(eventEl);
-                });
-
-                dayElement.appendChild(eventsCol);
-
                 // Mouse down to start drag selection
                 dayElement.addEventListener('mousedown', (e) => {
                     if (e.button !== 0) return; // Only left click
@@ -2864,8 +2830,8 @@
             }
         }
 
-        // Render multi-day event overlays
-        renderMultiDayEventOverlays(year);
+        // Render all event overlays (single-day and multi-day)
+        renderEventOverlays(year);
 
         // Scroll to today after a brief delay to ensure rendering is complete
         if (todayElement) {
@@ -2875,7 +2841,7 @@
         }
     }
 
-    function renderMultiDayEventOverlays(year) {
+    function renderEventOverlays(year) {
         // Create or get the overlay element
         let overlay = document.getElementById('list-multiday-overlay');
         if (!overlay) {
@@ -2885,8 +2851,8 @@
         }
         overlay.innerHTML = '';
 
-        const multiDayEvents = getAllMultiDayEvents(year);
-        if (multiDayEvents.length === 0) return;
+        const allEvents = getAllEventsForOverlay(year);
+        if (allEvents.length === 0) return;
 
         // Get all day elements for position calculation
         const dayElements = listCalendar.querySelectorAll('.list-day');
@@ -2902,7 +2868,38 @@
             };
         });
 
-        multiDayEvents.forEach(event => {
+        // Calculate day-of-year ranges for overlap detection
+        const eventsWithDoy = allEvents.map(event => {
+            const startDoy = getDayOfYearFromMonthDay(event.startMonth, event.startDay, year);
+            const endDoy = getDayOfYearFromMonthDay(event.endMonth, event.endDay, year);
+            return { ...event, startDoy, endDoy };
+        }).sort((a, b) => a.startDoy - b.startDoy || a.endDoy - b.endDoy);
+
+        // Assign columns to overlapping events
+        const columns = []; // Each column is an array of events
+        eventsWithDoy.forEach(event => {
+            // Find the first column where this event doesn't overlap
+            let placed = false;
+            for (let col = 0; col < columns.length; col++) {
+                const lastInCol = columns[col][columns[col].length - 1];
+                // No overlap if this event starts after the last one ends
+                if (event.startDoy > lastInCol.endDoy) {
+                    columns[col].push(event);
+                    event.column = col;
+                    placed = true;
+                    break;
+                }
+            }
+            if (!placed) {
+                // Need a new column
+                event.column = columns.length;
+                columns.push([event]);
+            }
+        });
+
+        const totalColumns = columns.length || 1;
+
+        eventsWithDoy.forEach(event => {
             const startKey = `${event.startMonth}-${event.startDay}`;
             const endKey = `${event.endMonth}-${event.endDay}`;
 
@@ -2914,13 +2911,23 @@
             const top = startPos.top;
             const height = (endPos.top + endPos.height) - startPos.top;
 
+            // Calculate horizontal position based on column (using percentages)
+            const gapPercent = 1; // gap between columns as percentage
+            const paddingPercent = 2; // padding on sides as percentage
+            const usableWidth = 100 - (paddingPercent * 2) - (gapPercent * (totalColumns - 1));
+            const columnWidth = usableWidth / totalColumns;
+            const leftPercent = paddingPercent + (event.column * (columnWidth + gapPercent));
+
             const eventEl = document.createElement('div');
             eventEl.className = 'list-multiday-event';
             eventEl.style.top = top + 'px';
             eventEl.style.height = height + 'px';
+            eventEl.style.left = leftPercent + '%';
+            eventEl.style.width = columnWidth + '%';
             eventEl.style.backgroundColor = hexToRgba(event.color, 0.25);
             eventEl.style.borderLeftColor = event.color;
             if (event.hidden) eventEl.classList.add('hidden-event');
+            if (totalColumns > 1) eventEl.classList.add('compact');
 
             const dot = document.createElement('span');
             dot.className = 'list-multiday-event-dot';
@@ -3030,7 +3037,7 @@
         return result;
     }
 
-    function getAllMultiDayEvents(year) {
+    function getAllEventsForOverlay(year) {
         const result = [];
 
         for (const [dateKey, annList] of Object.entries(annotations)) {
@@ -3040,32 +3047,38 @@
             const startMonthIdx = startMonth - 1;
 
             annList.forEach((annotation, index) => {
-                if (typeof annotation === 'object' && annotation.endMonth !== undefined) {
-                    const endMonthIdx = annotation.endMonth;
-                    const endDay = annotation.endDay;
+                const isMultiDay = typeof annotation === 'object' && annotation.endMonth !== undefined;
+                const endMonthIdx = isMultiDay ? annotation.endMonth : startMonthIdx;
+                const endDay = isMultiDay ? annotation.endDay : startDay;
 
+                let rangeLabel = null;
+                if (isMultiDay) {
                     const startAbbr = MONTHS[startMonthIdx].substring(0, 3);
                     const endAbbr = MONTHS[endMonthIdx].substring(0, 3);
-                    let rangeLabel;
                     if (startMonthIdx === endMonthIdx) {
                         rangeLabel = `${startAbbr} ${startDay}-${endDay}`;
                     } else {
                         rangeLabel = `${startAbbr} ${startDay} - ${endAbbr} ${endDay}`;
                     }
-
-                    result.push({
-                        dateKey,
-                        index,
-                        title: annotation.title,
-                        color: annotation.color || DEFAULT_COLOR,
-                        hidden: annotation.hidden || false,
-                        rangeLabel,
-                        startMonth: startMonthIdx,
-                        startDay: startDay,
-                        endMonth: endMonthIdx,
-                        endDay: endDay
-                    });
                 }
+
+                const title = typeof annotation === 'string' ? annotation : annotation.title;
+                const color = (typeof annotation === 'object' && annotation.color) ? annotation.color : DEFAULT_COLOR;
+                const hidden = typeof annotation === 'object' && annotation.hidden;
+
+                result.push({
+                    dateKey,
+                    index,
+                    title,
+                    color,
+                    hidden,
+                    rangeLabel,
+                    isMultiDay,
+                    startMonth: startMonthIdx,
+                    startDay: startDay,
+                    endMonth: endMonthIdx,
+                    endDay: endDay
+                });
             });
         }
 
