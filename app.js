@@ -2902,7 +2902,38 @@
             };
         });
 
-        multiDayEvents.forEach(event => {
+        // Calculate day-of-year ranges for overlap detection
+        const eventsWithDoy = multiDayEvents.map(event => {
+            const startDoy = getDayOfYearFromMonthDay(event.startMonth, event.startDay, year);
+            const endDoy = getDayOfYearFromMonthDay(event.endMonth, event.endDay, year);
+            return { ...event, startDoy, endDoy };
+        }).sort((a, b) => a.startDoy - b.startDoy || a.endDoy - b.endDoy);
+
+        // Assign columns to overlapping events
+        const columns = []; // Each column is an array of events
+        eventsWithDoy.forEach(event => {
+            // Find the first column where this event doesn't overlap
+            let placed = false;
+            for (let col = 0; col < columns.length; col++) {
+                const lastInCol = columns[col][columns[col].length - 1];
+                // No overlap if this event starts after the last one ends
+                if (event.startDoy > lastInCol.endDoy) {
+                    columns[col].push(event);
+                    event.column = col;
+                    placed = true;
+                    break;
+                }
+            }
+            if (!placed) {
+                // Need a new column
+                event.column = columns.length;
+                columns.push([event]);
+            }
+        });
+
+        const totalColumns = columns.length || 1;
+
+        eventsWithDoy.forEach(event => {
             const startKey = `${event.startMonth}-${event.startDay}`;
             const endKey = `${event.endMonth}-${event.endDay}`;
 
@@ -2914,13 +2945,23 @@
             const top = startPos.top;
             const height = (endPos.top + endPos.height) - startPos.top;
 
+            // Calculate horizontal position based on column (using percentages)
+            const gapPercent = 1; // gap between columns as percentage
+            const paddingPercent = 2; // padding on sides as percentage
+            const usableWidth = 100 - (paddingPercent * 2) - (gapPercent * (totalColumns - 1));
+            const columnWidth = usableWidth / totalColumns;
+            const leftPercent = paddingPercent + (event.column * (columnWidth + gapPercent));
+
             const eventEl = document.createElement('div');
             eventEl.className = 'list-multiday-event';
             eventEl.style.top = top + 'px';
             eventEl.style.height = height + 'px';
+            eventEl.style.left = leftPercent + '%';
+            eventEl.style.width = columnWidth + '%';
             eventEl.style.backgroundColor = hexToRgba(event.color, 0.25);
             eventEl.style.borderLeftColor = event.color;
             if (event.hidden) eventEl.classList.add('hidden-event');
+            if (totalColumns > 1) eventEl.classList.add('compact');
 
             const dot = document.createElement('span');
             dot.className = 'list-multiday-event-dot';

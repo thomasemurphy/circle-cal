@@ -1040,20 +1040,20 @@ body {
 
 .list-multiday-event {
     position: absolute;
-    left: 16px;
-    right: 16px;
     border-radius: 4px;
-    padding: 6px 10px;
+    padding: 6px 8px;
     font-size: 13px;
     font-weight: 500;
     color: var(--text-primary);
     display: flex;
     align-items: flex-start;
-    gap: 8px;
+    gap: 6px;
     pointer-events: auto;
     cursor: pointer;
-    border-left: 4px solid;
+    border-left: 3px solid;
     transition: filter 0.15s ease;
+    overflow: hidden;
+    box-sizing: border-box;
 }
 
 /* Disable pointer events on multi-day events during drag selection */
@@ -1079,12 +1079,23 @@ body {
 
 .list-multiday-event-title {
     flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
 }
 
 .list-multiday-event-range {
     font-size: 11px;
     color: var(--text-muted);
     flex-shrink: 0;
+    white-space: nowrap;
+}
+
+/* Hide range and dot when space is tight */
+.list-multiday-event.compact .list-multiday-event-range,
+.list-multiday-event.compact .list-multiday-event-dot {
+    display: none;
 }
 
 /* List view range selection overlay (green hue) */
