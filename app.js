@@ -2107,6 +2107,15 @@
         editingAnnotation = null;
         annotationInput.value = '';
         clearRangeHighlight();
+        // Also clear list view drag state
+        if (typeof isListDragging !== 'undefined') {
+            isListDragging = false;
+            listDragStart = null;
+            listDragEnd = null;
+        }
+        if (typeof clearListRangeHighlight === 'function') {
+            clearListRangeHighlight();
+        }
     }
 
     function updateAnnotationMarkers() {
@@ -2118,6 +2127,10 @@
         updateDaySegmentHighlights();
         updateDynamicFontSizes();
         initLabeler();
+        // Also update list view if it's active
+        if (typeof updateListView === 'function') {
+            updateListView();
+        }
     }
 
     function updateDaySegmentHighlights() {
@@ -2700,6 +2713,9 @@
             // Delay to allow orientation change to complete
             setTimeout(sizeSVGWrapper, 100);
         });
+
+        // Initialize view toggle
+        initViewToggle();
     }
 
     // Explicitly set SVG height based on width for iOS/Safari compatibility
@@ -2709,6 +2725,623 @@
             const width = wrapper.offsetWidth;
             svg.style.height = width + 'px';
         }
+    }
+
+    // ==================== LIST VIEW ====================
+
+    let currentView = 'circle'; // 'circle' or 'list'
+    const circleViewBtn = document.getElementById('circle-view-btn');
+    const listViewBtn = document.getElementById('list-view-btn');
+    const circleViewContainer = document.getElementById('circle-view');
+    const listViewContainer = document.getElementById('list-view');
+    const listCalendar = document.getElementById('list-calendar');
+
+    const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    // List view drag selection state
+    let listDragStart = null; // { month, day } - 0-indexed month
+    let listDragEnd = null;
+    let isListDragging = false;
+    let listDragMoved = false; // Track if mouse actually moved during drag
+    let listDragFromEvent = null; // Track event info if drag started from event tile
+
+    function switchView(view) {
+        currentView = view;
+
+        // Clear any drag selection state
+        isListDragging = false;
+        listDragStart = null;
+        listDragEnd = null;
+
+        if (view === 'circle') {
+            circleViewBtn.classList.add('active');
+            listViewBtn.classList.remove('active');
+            circleViewContainer.classList.add('active');
+            listViewContainer.classList.remove('active');
+        } else {
+            circleViewBtn.classList.remove('active');
+            listViewBtn.classList.add('active');
+            circleViewContainer.classList.remove('active');
+            listViewContainer.classList.add('active');
+            renderListView();
+        }
+    }
+
+    function renderListView() {
+        const year = new Date().getFullYear();
+        const today = new Date();
+        const todayMonth = today.getMonth();
+        const todayDay = today.getDate();
+
+        listCalendar.innerHTML = '';
+
+        let todayElement = null;
+
+        for (let month = 0; month < 12; month++) {
+            const daysInMonth = getDaysInMonth(month, year);
+
+            // Month header
+            const monthHeader = document.createElement('div');
+            monthHeader.className = 'list-month-header';
+            monthHeader.textContent = MONTHS[month];
+            monthHeader.setAttribute('data-month', month);
+            listCalendar.appendChild(monthHeader);
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                const date = new Date(year, month, day);
+                const dayOfWeek = date.getDay();
+                const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                const isToday = month === todayMonth && day === todayDay;
+
+                const dayElement = document.createElement('div');
+                dayElement.className = 'list-day';
+                dayElement.setAttribute('data-month', month);
+                dayElement.setAttribute('data-day', day);
+                if (isWeekend) dayElement.classList.add('weekend');
+                if (isToday) {
+                    dayElement.classList.add('today');
+                    todayElement = dayElement;
+                }
+
+                // Date column
+                const dateCol = document.createElement('div');
+                dateCol.className = 'list-day-date';
+
+                const dayNumber = document.createElement('span');
+                dayNumber.className = 'list-day-number';
+                dayNumber.textContent = day;
+
+                const weekdayName = document.createElement('span');
+                weekdayName.className = 'list-day-weekday';
+                weekdayName.textContent = WEEKDAYS[dayOfWeek];
+
+                dateCol.appendChild(dayNumber);
+                dateCol.appendChild(weekdayName);
+                dayElement.appendChild(dateCol);
+
+                // Events column (single-day events only)
+                const eventsCol = document.createElement('div');
+                eventsCol.className = 'list-day-events';
+
+                // Get single-day events for this day
+                const dayEvents = getEventsForListDay(month, day, year, true);
+                dayEvents.forEach(event => {
+                    const eventEl = document.createElement('div');
+                    eventEl.className = 'list-event';
+                    eventEl.style.backgroundColor = hexToRgba(event.color, 0.2);
+                    if (event.hidden) eventEl.classList.add('hidden-event');
+
+                    const dot = document.createElement('span');
+                    dot.className = 'list-event-dot';
+                    dot.style.backgroundColor = event.color;
+
+                    const title = document.createElement('span');
+                    title.className = 'list-event-title';
+                    title.textContent = event.title;
+
+                    eventEl.appendChild(dot);
+                    eventEl.appendChild(title);
+
+                    // Click on event to edit it
+                    eventEl.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        openEditModalFromList(event.dateKey, event.index, month, day);
+                    });
+
+                    eventsCol.appendChild(eventEl);
+                });
+
+                dayElement.appendChild(eventsCol);
+
+                // Mouse down to start drag selection
+                dayElement.addEventListener('mousedown', (e) => {
+                    if (e.button !== 0) return; // Only left click
+                    e.preventDefault();
+                    startListDrag(month, day);
+                });
+
+                listCalendar.appendChild(dayElement);
+            }
+        }
+
+        // Render multi-day event overlays
+        renderMultiDayEventOverlays(year);
+
+        // Scroll to today after a brief delay to ensure rendering is complete
+        if (todayElement) {
+            setTimeout(() => {
+                todayElement.scrollIntoView({ block: 'center' });
+            }, 50);
+        }
+    }
+
+    function renderMultiDayEventOverlays(year) {
+        // Create or get the overlay element
+        let overlay = document.getElementById('list-multiday-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'list-multiday-overlay';
+            listCalendar.appendChild(overlay);
+        }
+        overlay.innerHTML = '';
+
+        const multiDayEvents = getAllMultiDayEvents(year);
+        if (multiDayEvents.length === 0) return;
+
+        // Get all day elements for position calculation
+        const dayElements = listCalendar.querySelectorAll('.list-day');
+        const dayPositions = {};
+
+        dayElements.forEach(el => {
+            const m = parseInt(el.getAttribute('data-month'));
+            const d = parseInt(el.getAttribute('data-day'));
+            const key = `${m}-${d}`;
+            dayPositions[key] = {
+                top: el.offsetTop,
+                height: el.offsetHeight
+            };
+        });
+
+        multiDayEvents.forEach(event => {
+            const startKey = `${event.startMonth}-${event.startDay}`;
+            const endKey = `${event.endMonth}-${event.endDay}`;
+
+            const startPos = dayPositions[startKey];
+            const endPos = dayPositions[endKey];
+
+            if (!startPos || !endPos) return;
+
+            const top = startPos.top;
+            const height = (endPos.top + endPos.height) - startPos.top;
+
+            const eventEl = document.createElement('div');
+            eventEl.className = 'list-multiday-event';
+            eventEl.style.top = top + 'px';
+            eventEl.style.height = height + 'px';
+            eventEl.style.backgroundColor = hexToRgba(event.color, 0.25);
+            eventEl.style.borderLeftColor = event.color;
+            if (event.hidden) eventEl.classList.add('hidden-event');
+
+            const dot = document.createElement('span');
+            dot.className = 'list-multiday-event-dot';
+            dot.style.backgroundColor = event.color;
+
+            const title = document.createElement('span');
+            title.className = 'list-multiday-event-title';
+            title.textContent = event.title;
+
+            const range = document.createElement('span');
+            range.className = 'list-multiday-event-range';
+            range.textContent = event.rangeLabel;
+
+            eventEl.appendChild(dot);
+            eventEl.appendChild(title);
+            eventEl.appendChild(range);
+
+            // Mousedown on event to allow starting drag from here or clicking to edit
+            eventEl.addEventListener('mousedown', (e) => {
+                if (e.button !== 0) return;
+                const dayInfo = getDayAtPosition(e.clientY);
+                if (dayInfo) {
+                    e.preventDefault();
+                    // Pass event info so we can open edit modal on click (no drag)
+                    startListDrag(dayInfo.month, dayInfo.day, {
+                        dateKey: event.dateKey,
+                        index: event.index,
+                        startMonth: event.startMonth,
+                        startDay: event.startDay
+                    });
+                }
+            });
+
+            overlay.appendChild(eventEl);
+        });
+    }
+
+    function getEventsForListDay(month, day, year, singleDayOnly = false) {
+        // month is 0-indexed
+        const targetDoy = getDayOfYearFromMonthDay(month, day, year);
+        const result = [];
+
+        for (const [dateKey, annList] of Object.entries(annotations)) {
+            if (!annList || annList.length === 0) continue;
+
+            const [startMonth, startDay] = dateKey.split('-').map(Number);
+            const startMonthIdx = startMonth - 1; // Convert to 0-indexed
+            const startDoy = getDayOfYearFromMonthDay(startMonthIdx, startDay, year);
+
+            // Only show events that START on this day
+            if (startDoy !== targetDoy) continue;
+
+            annList.forEach((annotation, index) => {
+                if (typeof annotation === 'string') {
+                    // Simple string annotation (legacy)
+                    result.push({
+                        dateKey,
+                        index,
+                        title: annotation,
+                        color: DEFAULT_COLOR,
+                        hidden: false,
+                        isMultiDay: false,
+                        rangeLabel: null,
+                        durationDays: 1,
+                        startMonth: startMonthIdx,
+                        startDay: startDay
+                    });
+                } else {
+                    const hasEndDate = annotation.endMonth !== undefined;
+                    const endMonthIdx = hasEndDate ? annotation.endMonth : startMonthIdx;
+                    const endDay = hasEndDate ? annotation.endDay : startDay;
+                    const endDoy = getDayOfYearFromMonthDay(endMonthIdx, endDay, year);
+                    const durationDays = endDoy - startDoy + 1;
+
+                    // Skip multi-day events if we only want single-day
+                    if (singleDayOnly && hasEndDate) return;
+
+                    let rangeLabel = null;
+                    if (hasEndDate) {
+                        const startAbbr = MONTHS[startMonthIdx].substring(0, 3);
+                        const endAbbr = MONTHS[endMonthIdx].substring(0, 3);
+                        if (startMonthIdx === endMonthIdx) {
+                            rangeLabel = `${startAbbr} ${startDay}-${endDay}`;
+                        } else {
+                            rangeLabel = `${startAbbr} ${startDay} - ${endAbbr} ${endDay}`;
+                        }
+                    }
+
+                    result.push({
+                        dateKey,
+                        index,
+                        title: annotation.title,
+                        color: annotation.color || DEFAULT_COLOR,
+                        hidden: annotation.hidden || false,
+                        isMultiDay: hasEndDate,
+                        rangeLabel,
+                        durationDays,
+                        startMonth: startMonthIdx,
+                        startDay: startDay,
+                        endMonth: endMonthIdx,
+                        endDay: endDay
+                    });
+                }
+            });
+        }
+
+        return result;
+    }
+
+    function getAllMultiDayEvents(year) {
+        const result = [];
+
+        for (const [dateKey, annList] of Object.entries(annotations)) {
+            if (!annList || annList.length === 0) continue;
+
+            const [startMonth, startDay] = dateKey.split('-').map(Number);
+            const startMonthIdx = startMonth - 1;
+
+            annList.forEach((annotation, index) => {
+                if (typeof annotation === 'object' && annotation.endMonth !== undefined) {
+                    const endMonthIdx = annotation.endMonth;
+                    const endDay = annotation.endDay;
+
+                    const startAbbr = MONTHS[startMonthIdx].substring(0, 3);
+                    const endAbbr = MONTHS[endMonthIdx].substring(0, 3);
+                    let rangeLabel;
+                    if (startMonthIdx === endMonthIdx) {
+                        rangeLabel = `${startAbbr} ${startDay}-${endDay}`;
+                    } else {
+                        rangeLabel = `${startAbbr} ${startDay} - ${endAbbr} ${endDay}`;
+                    }
+
+                    result.push({
+                        dateKey,
+                        index,
+                        title: annotation.title,
+                        color: annotation.color || DEFAULT_COLOR,
+                        hidden: annotation.hidden || false,
+                        rangeLabel,
+                        startMonth: startMonthIdx,
+                        startDay: startDay,
+                        endMonth: endMonthIdx,
+                        endDay: endDay
+                    });
+                }
+            });
+        }
+
+        return result;
+    }
+
+    function hexToRgba(hex, alpha) {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+
+    function startListDrag(month, day, eventInfo = null) {
+        isListDragging = true;
+        listDragMoved = false;
+        listDragFromEvent = eventInfo; // { dateKey, index, startMonth, startDay } or null
+        listDragStart = { month, day };
+        listDragEnd = { month, day };
+        highlightListRange(month, day, month, day);
+        // Disable pointer events on multi-day events during drag
+        const overlay = document.getElementById('list-multiday-overlay');
+        if (overlay) overlay.classList.add('dragging');
+    }
+
+    function updateListDrag(month, day) {
+        if (!isListDragging || !listDragStart) return;
+
+        // Check if we actually moved to a different day
+        if (listDragEnd && (listDragEnd.month !== month || listDragEnd.day !== day)) {
+            listDragMoved = true;
+        }
+
+        listDragEnd = { month, day };
+        const year = new Date().getFullYear();
+        const startDoy = getDayOfYearFromMonthDay(listDragStart.month, listDragStart.day, year);
+        const endDoy = getDayOfYearFromMonthDay(month, day, year);
+
+        if (startDoy <= endDoy) {
+            highlightListRange(listDragStart.month, listDragStart.day, month, day);
+        } else {
+            highlightListRange(month, day, listDragStart.month, listDragStart.day);
+        }
+    }
+
+    function getDayAtPosition(clientY) {
+        const dayElements = listCalendar.querySelectorAll('.list-day');
+        for (const dayEl of dayElements) {
+            const rect = dayEl.getBoundingClientRect();
+            if (clientY >= rect.top && clientY <= rect.bottom) {
+                return {
+                    month: parseInt(dayEl.getAttribute('data-month')),
+                    day: parseInt(dayEl.getAttribute('data-day'))
+                };
+            }
+        }
+        return null;
+    }
+
+    function highlightListRange(startMonth, startDay, endMonth, endDay) {
+        // Create or get the drag highlight overlay
+        let highlight = document.getElementById('list-drag-highlight');
+        if (!highlight) {
+            highlight = document.createElement('div');
+            highlight.id = 'list-drag-highlight';
+            listCalendar.appendChild(highlight);
+        }
+
+        // Find the day elements for start and end
+        const startEl = listCalendar.querySelector(`.list-day[data-month="${startMonth}"][data-day="${startDay}"]`);
+        const endEl = listCalendar.querySelector(`.list-day[data-month="${endMonth}"][data-day="${endDay}"]`);
+
+        if (!startEl || !endEl) {
+            highlight.style.display = 'none';
+            return;
+        }
+
+        // Calculate position and height
+        const top = startEl.offsetTop;
+        const height = (endEl.offsetTop + endEl.offsetHeight) - startEl.offsetTop;
+
+        highlight.style.display = 'block';
+        highlight.style.top = top + 'px';
+        highlight.style.height = height + 'px';
+    }
+
+    function clearListRangeHighlight() {
+        const highlight = document.getElementById('list-drag-highlight');
+        if (highlight) {
+            highlight.style.display = 'none';
+        }
+    }
+
+    function openModalFromListRange(startMonth, startDay, endMonth, endDay) {
+        // months are 0-indexed
+        selectedDate = { month: startMonth, day: startDay };
+        selectedEndDate = { month: endMonth, day: endDay };
+        editingAnnotation = null;
+
+        // Format date display
+        const startStr = `${MONTHS[startMonth]} ${startDay}`;
+        const endStr = `${MONTHS[endMonth]} ${endDay}`;
+        modalDate.textContent = `${startStr} - ${endStr}`;
+
+        // Hide existing annotations and "also on this day" sections
+        existingAnnotations.innerHTML = '';
+        document.getElementById('also-on-this-day').innerHTML = '';
+
+        // Clear input and reset color/visibility
+        annotationInput.value = '';
+        document.querySelectorAll('.color-option').forEach(btn => {
+            btn.classList.toggle('selected', btn.getAttribute('data-color') === DEFAULT_COLOR);
+        });
+        selectedColor = DEFAULT_COLOR;
+        document.querySelectorAll('.visibility-btn').forEach(btn => {
+            btn.classList.toggle('selected', btn.getAttribute('data-hidden') === 'false');
+        });
+        selectedHidden = false;
+
+        // Hide delete button for new annotations
+        document.getElementById('delete-btn').style.display = 'none';
+
+        modal.style.display = 'flex';
+        annotationInput.focus();
+    }
+
+    function openModalFromList(month, day) {
+        // month is 0-indexed
+        selectedDate = { month: month, day: day };
+        selectedEndDate = null;
+        editingAnnotation = null;
+
+        // Format date display
+        const dateStr = `${MONTHS[month]} ${day}`;
+        modalDate.textContent = dateStr;
+
+        // Hide existing annotations and "also on this day" sections
+        existingAnnotations.innerHTML = '';
+        document.getElementById('also-on-this-day').innerHTML = '';
+
+        // Clear input and reset color/visibility
+        annotationInput.value = '';
+        document.querySelectorAll('.color-option').forEach(btn => {
+            btn.classList.toggle('selected', btn.getAttribute('data-color') === DEFAULT_COLOR);
+        });
+        selectedColor = DEFAULT_COLOR;
+        document.querySelectorAll('.visibility-btn').forEach(btn => {
+            btn.classList.toggle('selected', btn.getAttribute('data-hidden') === 'false');
+        });
+        selectedHidden = false;
+
+        // Hide delete button for new annotations
+        document.getElementById('delete-btn').style.display = 'none';
+
+        modal.style.display = 'flex';
+        annotationInput.focus();
+    }
+
+    function openEditModalFromList(dateKey, index, clickedMonth, clickedDay) {
+        const annList = annotations[dateKey];
+        if (!annList || !annList[index]) return;
+
+        const annotation = annList[index];
+        const [startMonth, startDay] = dateKey.split('-').map(Number);
+
+        // Set selected date to the event's start date
+        selectedDate = { month: startMonth - 1, day: startDay };
+
+        // If multi-day, set end date
+        if (annotation.endMonth !== undefined) {
+            selectedEndDate = { month: annotation.endMonth, day: annotation.endDay };
+        } else {
+            selectedEndDate = null;
+        }
+
+        editingAnnotation = { dateKey, index };
+
+        // Format date display
+        let dateStr = `${MONTHS[startMonth - 1]} ${startDay}`;
+        if (selectedEndDate) {
+            const endMonthName = MONTHS[selectedEndDate.month];
+            dateStr += ` - ${endMonthName} ${selectedEndDate.day}`;
+        }
+        modalDate.textContent = dateStr;
+
+        // Hide existing annotations list when editing
+        existingAnnotations.innerHTML = '';
+
+        // Fill in the current annotation
+        annotationInput.value = annotation.title || '';
+        const color = annotation.color || DEFAULT_COLOR;
+        document.querySelectorAll('.color-option').forEach(btn => {
+            btn.classList.toggle('selected', btn.getAttribute('data-color') === color);
+        });
+        selectedColor = color;
+        const hidden = annotation.hidden || false;
+        document.querySelectorAll('.visibility-btn').forEach(btn => {
+            btn.classList.toggle('selected', btn.getAttribute('data-hidden') === String(hidden));
+        });
+        selectedHidden = hidden;
+
+        // Show delete button for existing annotations
+        document.getElementById('delete-btn').style.display = 'block';
+
+        // Hide "also on this day" section when editing
+        document.getElementById('also-on-this-day').innerHTML = '';
+
+        modal.style.display = 'flex';
+        annotationInput.focus();
+    }
+
+    function updateListView() {
+        if (currentView === 'list') {
+            renderListView();
+        }
+    }
+
+    function initViewToggle() {
+        if (circleViewBtn) {
+            circleViewBtn.addEventListener('click', () => switchView('circle'));
+        }
+        if (listViewBtn) {
+            listViewBtn.addEventListener('click', () => switchView('list'));
+        }
+
+        // Global mousemove handler for list drag selection
+        document.addEventListener('mousemove', (e) => {
+            if (isListDragging && listDragStart) {
+                const dayInfo = getDayAtPosition(e.clientY);
+                if (dayInfo) {
+                    updateListDrag(dayInfo.month, dayInfo.day);
+                }
+            }
+        });
+
+        // Global mouseup handler for list drag selection
+        document.addEventListener('mouseup', () => {
+            // Re-enable pointer events on multi-day events
+            const overlay = document.getElementById('list-multiday-overlay');
+            if (overlay) overlay.classList.remove('dragging');
+
+            if (isListDragging && listDragStart) {
+                isListDragging = false;
+                const start = listDragStart;
+                const end = listDragEnd || listDragStart;
+
+                const year = new Date().getFullYear();
+                const startDoy = getDayOfYearFromMonthDay(start.month, start.day, year);
+                const endDoy = getDayOfYearFromMonthDay(end.month, end.day, year);
+
+                // Keep highlight visible for multi-day, clear for single day
+                if (startDoy === endDoy) {
+                    clearListRangeHighlight();
+                    // Check if this was a click on an event tile (no drag)
+                    if (listDragFromEvent && !listDragMoved) {
+                        // Open edit modal for the clicked event
+                        openEditModalFromList(
+                            listDragFromEvent.dateKey,
+                            listDragFromEvent.index,
+                            listDragFromEvent.startMonth,
+                            listDragFromEvent.startDay
+                        );
+                    } else {
+                        // Open new event modal
+                        openModalFromList(start.month, start.day);
+                    }
+                } else if (startDoy < endDoy) {
+                    openModalFromListRange(start.month, start.day, end.month, end.day);
+                } else {
+                    openModalFromListRange(end.month, end.day, start.month, start.day);
+                }
+
+                listDragStart = null;
+                listDragEnd = null;
+            }
+        });
     }
 
     init();
