@@ -41,9 +41,13 @@
     const svg = document.getElementById('calendar');
     const tooltip = document.getElementById('tooltip');
     const modal = document.getElementById('modal');
-    const modalDate = document.getElementById('modal-date');
     const existingAnnotations = document.getElementById('existing-annotations');
     const annotationInput = document.getElementById('annotation-input');
+
+    // Date input elements
+    const startDateInput = document.getElementById('start-date-input');
+    const endDateInput = document.getElementById('end-date-input');
+    const endDateContainer = document.getElementById('end-date-container');
 
     // Auth elements
     const loginBtn = document.getElementById('login-btn');
@@ -557,6 +561,24 @@
         }
     }
 
+    async function updateEventAPI(eventId, title, color, hidden, month, day, endMonth, endDay) {
+        if (!currentUser) return;
+        try {
+            const body = { title, color, hidden };
+            if (month !== undefined) body.month = month;
+            if (day !== undefined) body.day = day;
+            // Include end_month/end_day if they are provided (even if null, to clear them)
+            if (endMonth !== undefined) body.end_month = endMonth;
+            if (endDay !== undefined) body.end_day = endDay;
+            await api(`/api/events/${eventId}`, {
+                method: 'PUT',
+                body: JSON.stringify(body)
+            });
+        } catch (e) {
+            console.error('Failed to update event:', e);
+        }
+    }
+
     function isLeapYear(year) {
         return (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
     }
@@ -599,6 +621,24 @@
         if (d1 < d2) return -1;
         if (d1 > d2) return 1;
         return 0;
+    }
+
+    // Convert 0-indexed month and day to HTML date input value (YYYY-MM-DD)
+    function dateToInputValue(month, day) {
+        const year = new Date().getFullYear();
+        const m = String(month + 1).padStart(2, '0');
+        const d = String(day).padStart(2, '0');
+        return `${year}-${m}-${d}`;
+    }
+
+    // Parse HTML date input value (YYYY-MM-DD) to { month, day } with 0-indexed month
+    function inputValueToDate(value) {
+        if (!value) return null;
+        const parts = value.split('-');
+        return {
+            month: parseInt(parts[1], 10) - 1,
+            day: parseInt(parts[2], 10)
+        };
     }
 
     function getDayOfYear(date) {
@@ -1332,7 +1372,23 @@
 
         editingAnnotation = { dateKey, index };
         selectedDate = { month: month - 1, day };
-        modalDate.textContent = formatDate(month - 1, day, true);
+
+        // If multi-day, set end date
+        if (typeof annotation === 'object' && annotation.endMonth !== undefined) {
+            selectedEndDate = { month: annotation.endMonth, day: annotation.endDay };
+        } else {
+            selectedEndDate = null;
+        }
+
+        // Populate date inputs
+        startDateInput.value = dateToInputValue(month - 1, day);
+        if (selectedEndDate) {
+            endDateInput.value = dateToInputValue(selectedEndDate.month, selectedEndDate.day);
+            endDateContainer.style.display = 'flex';
+        } else {
+            endDateInput.value = '';
+            endDateContainer.style.display = 'none';
+        }
 
         // Hide existing annotations list and "also on this day" when editing
         existingAnnotations.innerHTML = '';
@@ -1832,18 +1888,17 @@
         selectedDate = rangeStartDate;
         editingAnnotation = null;
 
-        // Format the date header
+        // Populate date inputs
+        startDateInput.value = dateToInputValue(selectedDate.month, selectedDate.day);
         if (selectedEndDate && compareDates(selectedEndDate.month, selectedEndDate.day, selectedDate.month, selectedDate.day) > 0) {
             // Multi-day range
-            const startStr = formatDate(selectedDate.month, selectedDate.day);
-            const endStr = selectedDate.month === selectedEndDate.month
-                ? selectedEndDate.day  // Same month, just show day
-                : formatDate(selectedEndDate.month, selectedEndDate.day);
-            modalDate.textContent = `${startStr}-${endStr}`;
+            endDateInput.value = dateToInputValue(selectedEndDate.month, selectedEndDate.day);
+            endDateContainer.style.display = 'flex';
         } else {
             // Single day
             selectedEndDate = null;
-            modalDate.textContent = formatDate(selectedDate.month, selectedDate.day, true);
+            endDateInput.value = '';
+            endDateContainer.style.display = 'none';
         }
 
         // Clear existing annotations (used for edit mode)
@@ -1983,7 +2038,20 @@
     }
 
     async function saveAnnotation() {
-        if (!selectedDate) return;
+        // Read current values from date inputs
+        const startDateValue = inputValueToDate(startDateInput.value);
+        const endDateValue = inputValueToDate(endDateInput.value);
+
+        if (!startDateValue) return;
+
+        // Update selectedDate and selectedEndDate from inputs
+        selectedDate = startDateValue;
+        if (endDateValue && endDateContainer.style.display !== 'none' &&
+            compareDates(endDateValue.month, endDateValue.day, startDateValue.month, startDateValue.day) > 0) {
+            selectedEndDate = endDateValue;
+        } else {
+            selectedEndDate = null;
+        }
 
         const text = annotationInput.value.trim();
         if (!text) {
@@ -1991,29 +2059,86 @@
             return;
         }
 
-        const dateKey = getDateKey(selectedDate.month, selectedDate.day);
+        const newDateKey = getDateKey(selectedDate.month, selectedDate.day);
 
         if (editingAnnotation) {
             // Editing existing annotation
-            const annotation = annotations[editingAnnotation.dateKey][editingAnnotation.index];
+            const oldDateKey = editingAnnotation.dateKey;
+            const annotation = annotations[oldDateKey][editingAnnotation.index];
+
+            // Check if dates changed
+            const datesChanged = oldDateKey !== newDateKey;
+
             if (typeof annotation === 'object') {
                 annotation.title = text;
                 annotation.color = selectedColor;
                 annotation.hidden = selectedHidden;
+
+                // Update end date
+                if (selectedEndDate) {
+                    annotation.endMonth = selectedEndDate.month;
+                    annotation.endDay = selectedEndDate.day;
+                } else {
+                    delete annotation.endMonth;
+                    delete annotation.endDay;
+                }
+
+                // Save to API for logged-in users
+                if (currentUser && annotation.id) {
+                    const apiMonth = selectedDate.month + 1;
+                    const apiDay = selectedDate.day;
+                    // Use null (not undefined) to explicitly clear end dates when removing multi-day
+                    const apiEndMonth = selectedEndDate ? selectedEndDate.month + 1 : null;
+                    const apiEndDay = selectedEndDate ? selectedEndDate.day : null;
+                    await updateEventAPI(annotation.id, text, selectedColor, selectedHidden, apiMonth, apiDay, apiEndMonth, apiEndDay);
+                }
+
+                // If dates changed, move annotation to new dateKey
+                if (datesChanged) {
+                    // Remove from old dateKey
+                    annotations[oldDateKey].splice(editingAnnotation.index, 1);
+                    if (annotations[oldDateKey].length === 0) {
+                        delete annotations[oldDateKey];
+                    }
+                    // Add to new dateKey
+                    if (!annotations[newDateKey]) {
+                        annotations[newDateKey] = [];
+                    }
+                    annotations[newDateKey].push(annotation);
+                }
             } else {
-                annotations[editingAnnotation.dateKey][editingAnnotation.index] = {
+                const updatedAnnotation = {
                     title: text,
                     color: selectedColor,
                     hidden: selectedHidden
                 };
+                if (selectedEndDate) {
+                    updatedAnnotation.endMonth = selectedEndDate.month;
+                    updatedAnnotation.endDay = selectedEndDate.day;
+                }
+
+                if (datesChanged) {
+                    // Remove from old dateKey
+                    annotations[oldDateKey].splice(editingAnnotation.index, 1);
+                    if (annotations[oldDateKey].length === 0) {
+                        delete annotations[oldDateKey];
+                    }
+                    // Add to new dateKey
+                    if (!annotations[newDateKey]) {
+                        annotations[newDateKey] = [];
+                    }
+                    annotations[newDateKey].push(updatedAnnotation);
+                } else {
+                    annotations[oldDateKey][editingAnnotation.index] = updatedAnnotation;
+                }
             }
             if (!currentUser) {
                 saveAnnotationsLocal();
             }
         } else {
             // Adding new annotation
-            if (!annotations[dateKey]) {
-                annotations[dateKey] = [];
+            if (!annotations[newDateKey]) {
+                annotations[newDateKey] = [];
             }
 
             // Build annotation object
@@ -2062,11 +2187,11 @@
                 );
                 if (event) {
                     newAnnotation.id = event.id;
-                    annotations[dateKey].push(newAnnotation);
+                    annotations[newDateKey].push(newAnnotation);
                 }
             } else {
                 // Save locally with color
-                annotations[dateKey].push(newAnnotation);
+                annotations[newDateKey].push(newAnnotation);
                 saveAnnotationsLocal();
             }
         }
@@ -2646,6 +2771,35 @@
         document.getElementById('cancel-btn').addEventListener('click', closeModal);
         document.getElementById('delete-btn').addEventListener('click', deleteCurrentAnnotation);
 
+        // Date input event listeners
+        startDateInput.addEventListener('change', () => {
+            const newStart = inputValueToDate(startDateInput.value);
+            if (newStart) {
+                selectedDate = newStart;
+                // If end date exists and is now before start date, clear it
+                const endValue = inputValueToDate(endDateInput.value);
+                if (endValue && compareDates(endValue.month, endValue.day, newStart.month, newStart.day) <= 0) {
+                    endDateInput.value = '';
+                    selectedEndDate = null;
+                }
+            }
+        });
+
+        endDateInput.addEventListener('change', () => {
+            const newEnd = inputValueToDate(endDateInput.value);
+            const startValue = inputValueToDate(startDateInput.value);
+            if (newEnd && startValue) {
+                // Ensure end date is after start date
+                if (compareDates(newEnd.month, newEnd.day, startValue.month, startValue.day) > 0) {
+                    selectedEndDate = newEnd;
+                } else {
+                    // End date is before or equal to start, clear it
+                    endDateInput.value = '';
+                    selectedEndDate = null;
+                }
+            }
+        });
+
         // Color picker event listeners
         document.querySelectorAll('.color-option').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -3178,10 +3332,10 @@
         selectedEndDate = { month: endMonth, day: endDay };
         editingAnnotation = null;
 
-        // Format date display
-        const startStr = `${MONTHS[startMonth]} ${startDay}`;
-        const endStr = `${MONTHS[endMonth]} ${endDay}`;
-        modalDate.textContent = `${startStr} - ${endStr}`;
+        // Populate date inputs
+        startDateInput.value = dateToInputValue(startMonth, startDay);
+        endDateInput.value = dateToInputValue(endMonth, endDay);
+        endDateContainer.style.display = 'flex';
 
         // Hide existing annotations and "also on this day" sections
         existingAnnotations.innerHTML = '';
@@ -3211,9 +3365,10 @@
         selectedEndDate = null;
         editingAnnotation = null;
 
-        // Format date display
-        const dateStr = `${MONTHS[month]} ${day}`;
-        modalDate.textContent = dateStr;
+        // Populate date inputs
+        startDateInput.value = dateToInputValue(month, day);
+        endDateInput.value = '';
+        endDateContainer.style.display = 'none';
 
         // Hide existing annotations and "also on this day" sections
         existingAnnotations.innerHTML = '';
@@ -3256,13 +3411,15 @@
 
         editingAnnotation = { dateKey, index };
 
-        // Format date display
-        let dateStr = `${MONTHS[startMonth - 1]} ${startDay}`;
+        // Populate date inputs
+        startDateInput.value = dateToInputValue(startMonth - 1, startDay);
         if (selectedEndDate) {
-            const endMonthName = MONTHS[selectedEndDate.month];
-            dateStr += ` - ${endMonthName} ${selectedEndDate.day}`;
+            endDateInput.value = dateToInputValue(selectedEndDate.month, selectedEndDate.day);
+            endDateContainer.style.display = 'flex';
+        } else {
+            endDateInput.value = '';
+            endDateContainer.style.display = 'none';
         }
-        modalDate.textContent = dateStr;
 
         // Hide existing annotations list when editing
         existingAnnotations.innerHTML = '';

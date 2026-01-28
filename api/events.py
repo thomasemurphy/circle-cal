@@ -61,14 +61,18 @@ async def update_event(
         event.month = event_data.month
     if event_data.day is not None:
         event.day = event_data.day
-    if event_data.end_month is not None:
+    # Handle end_month/end_day - check if they were explicitly included in the request
+    # Use model_fields_set to know if a field was provided (even if None)
+    if "end_month" in event_data.model_fields_set:
         event.end_month = event_data.end_month
-    if event_data.end_day is not None:
+    if "end_day" in event_data.model_fields_set:
         event.end_day = event_data.end_day
     if event_data.title is not None:
         event.title = event_data.title
     if event_data.color is not None:
         event.color = event_data.color
+    if event_data.hidden is not None:
+        event.hidden = event_data.hidden
 
     await db.commit()
     await db.refresh(event)
