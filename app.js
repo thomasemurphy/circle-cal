@@ -557,6 +557,18 @@
         }
     }
 
+    async function updateEventAPI(eventId, title, color, hidden) {
+        if (!currentUser) return;
+        try {
+            await api(`/api/events/${eventId}`, {
+                method: 'PUT',
+                body: JSON.stringify({ title, color, hidden })
+            });
+        } catch (e) {
+            console.error('Failed to update event:', e);
+        }
+    }
+
     function isLeapYear(year) {
         return (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
     }
@@ -2000,6 +2012,10 @@
                 annotation.title = text;
                 annotation.color = selectedColor;
                 annotation.hidden = selectedHidden;
+                // Save to API for logged-in users
+                if (currentUser && annotation.id) {
+                    await updateEventAPI(annotation.id, text, selectedColor, selectedHidden);
+                }
             } else {
                 annotations[editingAnnotation.dateKey][editingAnnotation.index] = {
                     title: text,

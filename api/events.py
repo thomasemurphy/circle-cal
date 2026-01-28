@@ -69,6 +69,8 @@ async def update_event(
         event.title = event_data.title
     if event_data.color is not None:
         event.color = event_data.color
+    if event_data.hidden is not None:
+        event.hidden = event_data.hidden
 
     await db.commit()
     await db.refresh(event)
