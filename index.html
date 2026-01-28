@@ -91,7 +91,16 @@
 
         <div id="modal" class="modal">
             <div class="modal-content">
-                <h3 id="modal-date"></h3>
+                <div class="modal-date-section">
+                    <div class="date-input-group">
+                        <label>Start</label>
+                        <input type="date" id="start-date-input">
+                    </div>
+                    <div class="date-input-group end-date-group" id="end-date-container" style="display: none;">
+                        <label>End</label>
+                        <input type="date" id="end-date-input">
+                    </div>
+                </div>
                 <div id="existing-annotations"></div>
                 <textarea id="annotation-input" placeholder="Some event"></textarea>
                 <div id="color-picker" class="color-picker">
