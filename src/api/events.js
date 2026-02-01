@@ -2,6 +2,7 @@ import { DEFAULT_COLOR, BIRTHDAY_COLOR, FRIEND_BIRTHDAY_COLOR, BIRTHDAY_TITLE } 
 import { state, setEvents, setAnnotations, isLoggedIn, saveAnnotationsToLocalStorage } from '../state.js';
 import { api } from './auth.js';
 import { fetchFriends } from './friends.js';
+import { updateAnnotationMarkers } from '../calendar/markers.js';
 
 /**
  * Load events from the API and convert to annotations format
@@ -39,6 +40,9 @@ export async function loadEventsFromAPI() {
 
     // Inject birthday events (own and friends)
     injectBirthdayEvent();
+
+    // Update the circle view markers
+    updateAnnotationMarkers();
   } catch (e) {
     console.error('Failed to load events:', e);
   }
