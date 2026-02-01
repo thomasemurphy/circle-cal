@@ -87,8 +87,8 @@ async def health_check():
     return {"status": "healthy"}
 
 
-# Serve static files in development
-static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "")
+# Serve static files from dist/ directory (built by Vite)
+static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dist")
 
 
 @app.get("/")
