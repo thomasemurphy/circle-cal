@@ -210,6 +210,9 @@ export async function init() {
   const svg = getSVG();
   const year = new Date().getFullYear();
 
+  // Scroll to top on load to prevent header being cut off
+  window.scrollTo(0, 0);
+
   // Initialize theme
   initTheme();
 

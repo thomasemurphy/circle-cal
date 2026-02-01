@@ -351,6 +351,11 @@ export function sizeSVGWrapper() {
   const svg = getSVG();
   if (wrapper && svg) {
     const width = wrapper.offsetWidth;
-    svg.style.height = width + 'px';
+    // Cap height to available viewport space (accounting for header ~60px and padding)
+    const header = document.querySelector('.app-header');
+    const headerHeight = header ? header.offsetHeight : 60;
+    const maxHeight = window.innerHeight - headerHeight - 40;
+    const height = Math.min(width, maxHeight);
+    svg.style.height = height + 'px';
   }
 }

@@ -64,12 +64,16 @@ body {
 
 /* Header */
 .app-header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
     width: 100%;
     max-width: 900px;
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding: 16px 20px;
+    background: var(--bg-primary);
 }
 
 .app-header h1 {
