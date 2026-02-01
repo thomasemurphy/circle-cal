@@ -1,7 +1,7 @@
 import { SVG_NS, OUTER_RADIUS, INNER_RADIUS, MONTHS, DOW_ABBREV } from '../config.js';
 import { getDaysInYear, getDaysInMonth, dateToAngle, getDayOfYear } from '../utils/date.js';
 import { polarToCartesian, createArcPath } from '../utils/math.js';
-import { handleDayHover, handleDayLeave, handleDayMouseDown, handleDayRangeMove, handleDayMouseUp } from './interactions.js';
+import { handleDayHover, handleDayLeave, handleDayMouseDown, handleDayRangeMove, handleDayMouseUp, handleDayClick } from './interactions.js';
 
 /**
  * Create all day segments for the circular calendar
@@ -57,6 +57,7 @@ export function createDaySegments(year) {
       path.addEventListener('mousedown', handleDayMouseDown);
       path.addEventListener('mouseenter', handleDayRangeMove);
       path.addEventListener('mouseup', handleDayMouseUp);
+      path.addEventListener('click', handleDayClick);
 
       pathsGroup.appendChild(path);
 

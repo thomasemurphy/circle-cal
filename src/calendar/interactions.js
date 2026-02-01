@@ -1,4 +1,7 @@
 import { state, setSelectedDate, setSelectedEndDate, setEditingAnnotation, setSelectingRange } from '../state.js';
+
+// Track if mouse moved during click (to distinguish click from drag)
+let mouseDownPos = null;
 import { DEFAULT_COLOR } from '../config.js';
 import { formatDate, getDayOfYearFromMonthDay, getMonthDayFromDayOfYear, getDaysInYear, compareDates, dateToInputValue } from '../utils/date.js';
 import { getElements, getTooltip } from '../ui/elements.js';
@@ -165,6 +168,9 @@ export function handleDayMouseDown(e) {
   const month = parseInt(e.target.getAttribute('data-month'));
   const day = parseInt(e.target.getAttribute('data-day'));
 
+  // Track starting position to detect drag vs click
+  mouseDownPos = { x: e.clientX, y: e.clientY, month, day };
+
   setSelectingRange(true, { month, day });
   setSelectedDate({ month, day });
   setSelectedEndDate(null);
@@ -173,6 +179,55 @@ export function handleDayMouseDown(e) {
   e.target.classList.add('range-selected');
 
   document.addEventListener('mouseup', handleGlobalMouseUp);
+}
+
+/**
+ * Handle click/tap on a day segment (for touch devices and simple clicks)
+ */
+export function handleDayClick(e) {
+  // Only handle if it was a simple click (not a drag)
+  if (mouseDownPos) {
+    const dx = Math.abs(e.clientX - mouseDownPos.x);
+    const dy = Math.abs(e.clientY - mouseDownPos.y);
+    if (dx > 5 || dy > 5) {
+      // This was a drag, not a click - let mouseup handler deal with it
+      mouseDownPos = null;
+      return;
+    }
+  }
+  mouseDownPos = null;
+
+  const month = parseInt(e.target.getAttribute('data-month'));
+  const day = parseInt(e.target.getAttribute('data-day'));
+
+  if (isNaN(month) || isNaN(day)) return;
+
+  // Set up state for a single day selection
+  setSelectingRange(false);
+  setSelectedDate({ month, day });
+  setSelectedEndDate(null);
+  setEditingAnnotation(null);
+
+  // Open modal
+  const elements = getElements();
+
+  if (elements.startDateInput) {
+    elements.startDateInput.value = dateToInputValue(month, day);
+  }
+  if (elements.endDateInput) elements.endDateInput.value = '';
+  if (elements.endDateContainer) elements.endDateContainer.style.display = 'none';
+  if (elements.existingAnnotations) elements.existingAnnotations.innerHTML = '';
+
+  renderAlsoOnThisDay(month, day);
+  resetColorPicker();
+  resetVisibilityToggle();
+
+  if (elements.deleteBtn) elements.deleteBtn.style.display = 'none';
+  if (elements.annotationInput) elements.annotationInput.value = '';
+  if (elements.modal) elements.modal.style.display = 'flex';
+  if (elements.annotationInput) elements.annotationInput.focus();
+
+  clearRangeHighlight();
 }
 
 /**

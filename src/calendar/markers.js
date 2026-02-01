@@ -4,7 +4,7 @@ import { getDaysInYear, getDayOfYearFromMonthDay, getMonthDayFromDayOfYear, date
 import { polarToCartesian, createArcPath } from '../utils/math.js';
 import { getSVG, getElements } from '../ui/elements.js';
 import { openEditModal } from '../ui/modals.js';
-import { handleAnnotationHover, handleAnnotationLeave, handleDayMouseDown, handleDayRangeMove, handleDayMouseUp, handleSubsegmentHover, handleSubsegmentLeave } from './interactions.js';
+import { handleAnnotationHover, handleAnnotationLeave, handleDayMouseDown, handleDayRangeMove, handleDayMouseUp, handleDayClick, handleSubsegmentHover, handleSubsegmentLeave } from './interactions.js';
 import { initLabeler, updateLabelVisibility } from './labels.js';
 import { updateDynamicFontSizes } from './zoom.js';
 import { renderListView } from './list-view.js';
@@ -436,6 +436,7 @@ export function updateDaySegmentHighlights() {
         subPath.addEventListener('mousedown', handleDayMouseDown);
         subPath.addEventListener('mouseenter', handleDayRangeMove);
         subPath.addEventListener('mouseup', handleDayMouseUp);
+        subPath.addEventListener('click', handleDayClick);
 
         subsegmentsGroup.appendChild(subPath);
       });
