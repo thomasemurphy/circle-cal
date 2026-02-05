@@ -251,7 +251,7 @@ export function handleDayRangeMove(e) {
  * Handle mouse up on a day segment
  */
 export function handleDayMouseUp(e) {
-  if (!state.interaction.isSelectingRange) return;
+  if (!state.interaction.isSelectingRange || !state.interaction.rangeStartDate) return;
 
   const month = parseInt(e.target.getAttribute('data-month'));
   const day = parseInt(e.target.getAttribute('data-day'));
@@ -270,7 +270,8 @@ export function handleGlobalMouseUp(e) {
   if (!state.interaction.isSelectingRange) return;
   document.removeEventListener('mouseup', handleGlobalMouseUp);
 
-  if (!e.target.classList.contains('day-segment')) {
+  // If released on a day segment or subsegment, handleDayMouseUp handles it
+  if (!e.target.classList.contains('day-segment') && !e.target.classList.contains('event-subsegment')) {
     finishRangeSelection();
   }
 }
@@ -281,21 +282,31 @@ export function handleGlobalMouseUp(e) {
 export function finishRangeSelection() {
   const elements = getElements();
 
+  // Save rangeStartDate before clearing it
+  const rangeStart = state.interaction.rangeStartDate;
+
   setSelectingRange(false);
   document.removeEventListener('mouseup', handleGlobalMouseUp);
 
-  setSelectedDate(state.interaction.rangeStartDate);
+  // Safety check - if no valid range start, just return
+  if (!rangeStart || typeof rangeStart.month !== 'number' || typeof rangeStart.day !== 'number' ||
+      isNaN(rangeStart.month) || isNaN(rangeStart.day)) return;
+
+  setSelectedDate(rangeStart);
   setEditingAnnotation(null);
 
   // Populate date inputs
-  if (elements.startDateInput) {
+  if (elements.startDateInput && state.ui.selectedDate) {
     elements.startDateInput.value = dateToInputValue(state.ui.selectedDate.month, state.ui.selectedDate.day);
   }
 
-  if (state.ui.selectedEndDate && compareDates(state.ui.selectedEndDate.month, state.ui.selectedEndDate.day, state.ui.selectedDate.month, state.ui.selectedDate.day) > 0) {
+  const selectedDate = state.ui.selectedDate;
+  const selectedEndDate = state.ui.selectedEndDate;
+
+  if (selectedDate && selectedEndDate && compareDates(selectedEndDate.month, selectedEndDate.day, selectedDate.month, selectedDate.day) > 0) {
     // Multi-day range
     if (elements.endDateInput) {
-      elements.endDateInput.value = dateToInputValue(state.ui.selectedEndDate.month, state.ui.selectedEndDate.day);
+      elements.endDateInput.value = dateToInputValue(selectedEndDate.month, selectedEndDate.day);
     }
     if (elements.endDateContainer) elements.endDateContainer.style.display = 'flex';
   } else {
@@ -309,7 +320,9 @@ export function finishRangeSelection() {
   if (elements.existingAnnotations) elements.existingAnnotations.innerHTML = '';
 
   // Show "Also on this day" buttons
-  renderAlsoOnThisDay(state.ui.selectedDate.month, state.ui.selectedDate.day);
+  if (selectedDate) {
+    renderAlsoOnThisDay(selectedDate.month, selectedDate.day);
+  }
 
   // Reset color picker and visibility
   resetColorPicker();

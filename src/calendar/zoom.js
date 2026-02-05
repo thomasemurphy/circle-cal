@@ -79,8 +79,8 @@ export function handlePanStart(e) {
   // Only pan with left mouse button, not during day clicks
   if (e.button !== 0) return;
 
-  // Don't pan when clicking on day segments (for range selection)
-  if (e.target.classList.contains('day-segment')) return;
+  // Don't pan when clicking on day segments or event subsegments (for range selection)
+  if (e.target.classList.contains('day-segment') || e.target.classList.contains('event-subsegment')) return;
 
   state.interaction.isPanning = true;
   state.interaction.panStart = { x: e.clientX, y: e.clientY };
@@ -132,8 +132,8 @@ export function handleTouchStart(e) {
     state.interaction.lastTouchCenter = state.interaction.touchStartCenter;
     state.interaction.isTouchPanning = false;
   } else if (e.touches.length === 1) {
-    // Single touch pan start
-    if (e.target.classList.contains('day-segment')) return;
+    // Single touch pan start - don't pan when touching day segments or event subsegments
+    if (e.target.classList.contains('day-segment') || e.target.classList.contains('event-subsegment')) return;
     state.interaction.isTouchPanning = true;
     state.interaction.panStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
     const vb = getViewBox();
