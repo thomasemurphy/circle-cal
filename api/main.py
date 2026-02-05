@@ -87,29 +87,13 @@ async def health_check():
     return {"status": "healthy"}
 
 
-# Serve static files from dist/ directory (built by Vite)
-# Falls back to src/ for development if dist/ doesn't exist
-project_root = os.path.dirname(os.path.dirname(__file__))
-dist_dir = os.path.join(project_root, "dist")
-src_dir = os.path.join(project_root, "src")
-
-# Use dist/ if it exists (production), otherwise fall back to src/ (development)
-if os.path.isdir(dist_dir) and os.path.isfile(os.path.join(dist_dir, "index.html")):
-    static_dir = dist_dir
-else:
-    static_dir = src_dir
+# Serve static files in development
+static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "")
 
 
 @app.get("/")
 async def serve_index():
-    index_path = os.path.join(static_dir, "index.html")
-    if not os.path.isfile(index_path):
-        from fastapi.responses import JSONResponse
-        return JSONResponse(
-            status_code=500,
-            content={"error": "Frontend not built. Run 'npm run build' first, or use 'npm run dev' for development."}
-        )
-    return FileResponse(index_path)
+    return FileResponse(os.path.join(static_dir, "index.html"))
 
 
 @app.get("/{filename:path}")
@@ -118,11 +102,4 @@ async def serve_static(filename: str):
     if os.path.isfile(file_path):
         return FileResponse(file_path)
     # Fallback to index.html for SPA routing
-    index_path = os.path.join(static_dir, "index.html")
-    if os.path.isfile(index_path):
-        return FileResponse(index_path)
-    from fastapi.responses import JSONResponse
-    return JSONResponse(
-        status_code=500,
-        content={"error": "Frontend not built. Run 'npm run build' first, or use 'npm run dev' for development."}
-    )
+    return FileResponse(os.path.join(static_dir, "index.html"))

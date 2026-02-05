@@ -27,8 +27,3 @@ Thumbs.db
 
 # Local database
 *.db
-
-# Node.js
-node_modules/
-dist/
-*.local
