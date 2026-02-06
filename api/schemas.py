@@ -44,8 +44,8 @@ class EventResponse(BaseModel):
     id: str
     month: int
     day: int
-    end_month: Optional[int]
-    end_day: Optional[int]
+    end_month: int
+    end_day: int
     title: str
     color: Optional[str]
     hidden: bool

@@ -27,12 +27,16 @@ async def create_event(
     user: User = Depends(require_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # Default end date to start date if not provided
+    end_month = event_data.end_month if event_data.end_month is not None else event_data.month
+    end_day = event_data.end_day if event_data.end_day is not None else event_data.day
+
     event = Event(
         user_id=user.id,
         month=event_data.month,
         day=event_data.day,
-        end_month=event_data.end_month,
-        end_day=event_data.end_day,
+        end_month=end_month,
+        end_day=end_day,
         title=event_data.title,
         color=event_data.color,
     )
@@ -61,12 +65,11 @@ async def update_event(
         event.month = event_data.month
     if event_data.day is not None:
         event.day = event_data.day
-    # Handle end_month/end_day - check if they were explicitly included in the request
-    # Use model_fields_set to know if a field was provided (even if None)
+    # Handle end_month/end_day - if explicitly set to None, use start date
     if "end_month" in event_data.model_fields_set:
-        event.end_month = event_data.end_month
+        event.end_month = event_data.end_month if event_data.end_month is not None else event.month
     if "end_day" in event_data.model_fields_set:
-        event.end_day = event_data.end_day
+        event.end_day = event_data.end_day if event_data.end_day is not None else event.day
     if event_data.title is not None:
         event.title = event_data.title
     if event_data.color is not None:

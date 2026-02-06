@@ -27,3 +27,6 @@ Thumbs.db
 
 # Local database
 *.db
+node_modules/
+dist/
+.vite/

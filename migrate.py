@@ -22,6 +22,10 @@ migrations = [
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS color VARCHAR(7) DEFAULT '#ff6360'",
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS hidden BOOLEAN DEFAULT FALSE",
 
+    # Backfill end dates for single-day events (set end = start where null)
+    "UPDATE events SET end_month = month WHERE end_month IS NULL",
+    "UPDATE events SET end_day = day WHERE end_day IS NULL",
+
     # User birthday columns
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS birthday_month INTEGER",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS birthday_day INTEGER",

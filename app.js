@@ -695,21 +695,18 @@
         }
 
         // 3. Duration bonus: 2-4 days (+15), 1 day (+5), 5+ days (+0)
-        if (typeof annotation === 'object' && annotation.endMonth !== undefined) {
-            const startDoy = getDayOfYearFromMonthDay(month - 1, day, currentYear);
-            const endDoy = getDayOfYearFromMonthDay(annotation.endMonth, annotation.endDay, currentYear);
-            const duration = endDoy - startDoy + 1;
+        const endMonthIdx = typeof annotation === 'object' && annotation.endMonth !== undefined ? annotation.endMonth : month - 1;
+        const endDayNum = typeof annotation === 'object' && annotation.endDay !== undefined ? annotation.endDay : day;
+        const startDoy = getDayOfYearFromMonthDay(month - 1, day, currentYear);
+        const endDoy = getDayOfYearFromMonthDay(endMonthIdx, endDayNum, currentYear);
+        const duration = endDoy - startDoy + 1;
 
-            if (duration >= 2 && duration <= 4) {
-                priority += 15;
-            } else if (duration === 1) {
-                priority += 5;
-            }
-            // 5+ days: +0
-        } else {
-            // Single day event
+        if (duration >= 2 && duration <= 4) {
+            priority += 15;
+        } else if (duration === 1) {
             priority += 5;
         }
+        // 5+ days: +0
 
         return priority;
     }
@@ -1115,23 +1112,23 @@
                 const isHidden = typeof annotation === 'object' && annotation.hidden;
                 if (isHidden) return;
 
-                // Check for multi-day event
-                const hasEndDate = typeof annotation === 'object' && annotation.endMonth !== undefined;
-                const endMonth = hasEndDate ? annotation.endMonth : startMonth;
-                const endDay = hasEndDate ? annotation.endDay : startDay;
+                // Check for multi-day event (end date differs from start date)
+                const endMonth = typeof annotation === 'object' && annotation.endMonth !== undefined ? annotation.endMonth : startMonth;
+                const endDay = typeof annotation === 'object' && annotation.endDay !== undefined ? annotation.endDay : startDay;
+                const isMultiDay = endMonth !== startMonth || endDay !== startDay;
 
                 // Calculate day of year for start and end
                 const startDoy = getDayOfYearFromMonthDay(startMonth, startDay, year);
                 const endDoy = getDayOfYearFromMonthDay(endMonth, endDay, year);
 
                 // Use midpoint for multi-day events, or the day itself for single-day
-                const midDoy = hasEndDate ? (startDoy + endDoy) / 2 : startDoy - 0.5;
+                const midDoy = isMultiDay ? (startDoy + endDoy) / 2 : startDoy - 0.5;
                 const angle = dateToAngle(midDoy, totalDays);
                 const outerEdgePos = polarToCartesian(angle, OUTER_RADIUS);
 
                 // Format date label
                 let dateLabel;
-                if (hasEndDate) {
+                if (isMultiDay) {
                     const startAbbr = MONTHS[startMonth].substring(0, 3);
                     if (startMonth === endMonth) {
                         dateLabel = `${startAbbr} ${startDay}-${endDay}`;
@@ -1196,7 +1193,7 @@
                 text.setAttribute('data-original-y', textY);
                 text.setAttribute('data-angle', angle);
                 // Store end date for multi-day events (0-indexed months)
-                if (hasEndDate) {
+                if (isMultiDay) {
                     text.setAttribute('data-end-month', endMonth);
                     text.setAttribute('data-end-day', endDay);
                 }
@@ -1373,17 +1370,21 @@
         editingAnnotation = { dateKey, index };
         selectedDate = { month: month - 1, day };
 
-        // If multi-day, set end date
-        if (typeof annotation === 'object' && annotation.endMonth !== undefined) {
-            selectedEndDate = { month: annotation.endMonth, day: annotation.endDay };
+        // Check if multi-day (end date differs from start date)
+        const endMonth = typeof annotation === 'object' && annotation.endMonth !== undefined ? annotation.endMonth : month - 1;
+        const endDay = typeof annotation === 'object' && annotation.endDay !== undefined ? annotation.endDay : day;
+        const isMultiDay = endMonth !== month - 1 || endDay !== day;
+
+        if (isMultiDay) {
+            selectedEndDate = { month: endMonth, day: endDay };
         } else {
             selectedEndDate = null;
         }
 
         // Populate date inputs
         startDateInput.value = dateToInputValue(month - 1, day);
-        if (selectedEndDate) {
-            endDateInput.value = dateToInputValue(selectedEndDate.month, selectedEndDate.day);
+        if (isMultiDay) {
+            endDateInput.value = dateToInputValue(endMonth, endDay);
             endDateContainer.style.display = 'flex';
         } else {
             endDateInput.value = '';
@@ -1680,9 +1681,9 @@
             const startMonthIdx = startMonth - 1; // Convert to 0-indexed
 
             for (const annotation of annList) {
-                const hasEndDate = typeof annotation === 'object' && annotation.endMonth !== undefined;
-                const endMonthIdx = hasEndDate ? annotation.endMonth : startMonthIdx;
-                const endDay = hasEndDate ? annotation.endDay : startDay;
+                // Get end date (defaults to start date if not set)
+                const endMonthIdx = typeof annotation === 'object' && annotation.endMonth !== undefined ? annotation.endMonth : startMonthIdx;
+                const endDay = typeof annotation === 'object' && annotation.endDay !== undefined ? annotation.endDay : startDay;
 
                 const startDoy = getDayOfYearFromMonthDay(startMonthIdx, startDay, year);
                 const endDoy = getDayOfYearFromMonthDay(endMonthIdx, endDay, year);
@@ -1722,9 +1723,9 @@
             const startMonthIdx = startMonth - 1; // Convert to 0-indexed
 
             for (const annotation of annList) {
-                const hasEndDate = typeof annotation === 'object' && annotation.endMonth !== undefined;
-                const endMonthIdx = hasEndDate ? annotation.endMonth : startMonthIdx;
-                const endDay = hasEndDate ? annotation.endDay : startDay;
+                // Get end date (defaults to start date if not set)
+                const endMonthIdx = typeof annotation === 'object' && annotation.endMonth !== undefined ? annotation.endMonth : startMonthIdx;
+                const endDay = typeof annotation === 'object' && annotation.endDay !== undefined ? annotation.endDay : startDay;
 
                 const startDoy = getDayOfYearFromMonthDay(startMonthIdx, startDay, year);
                 const endDoy = getDayOfYearFromMonthDay(endMonthIdx, endDay, year);
@@ -1984,9 +1985,9 @@
             const startMonthIdx = startMonth - 1; // Convert to 0-indexed
 
             annList.forEach((annotation, index) => {
-                const hasEndDate = typeof annotation === 'object' && annotation.endMonth !== undefined;
-                const endMonthIdx = hasEndDate ? annotation.endMonth : startMonthIdx;
-                const endDay = hasEndDate ? annotation.endDay : startDay;
+                // Get end date (defaults to start date if not set)
+                const endMonthIdx = typeof annotation === 'object' && annotation.endMonth !== undefined ? annotation.endMonth : startMonthIdx;
+                const endDay = typeof annotation === 'object' && annotation.endDay !== undefined ? annotation.endDay : startDay;
 
                 const startDoy = getDayOfYearFromMonthDay(startMonthIdx, startDay, year);
                 const endDoy = getDayOfYearFromMonthDay(endMonthIdx, endDay, year);
@@ -2157,16 +2158,20 @@
             // Calculate initial position within current viewport
             const year = new Date().getFullYear();
             const totalDays = getDaysInYear(year);
+            const startDoy = getDayOfYearFromMonthDay(selectedDate.month, selectedDate.day, year);
             let targetAngle;
-            if (newAnnotation.endMonth !== undefined) {
+
+            // Check if multi-day (end date differs from start date)
+            const isMultiDay = newAnnotation.endMonth !== undefined &&
+                (newAnnotation.endMonth !== selectedDate.month || newAnnotation.endDay !== selectedDate.day);
+
+            if (isMultiDay) {
                 // Multi-day event - use midpoint
-                const startDoy = getDayOfYearFromMonthDay(selectedDate.month, selectedDate.day, year);
                 const endDoy = getDayOfYearFromMonthDay(newAnnotation.endMonth, newAnnotation.endDay, year);
                 targetAngle = dateToAngle((startDoy + endDoy) / 2, totalDays);
             } else {
                 // Single day
-                const doy = getDayOfYearFromMonthDay(selectedDate.month, selectedDate.day, year);
-                targetAngle = dateToAngle(doy - 0.5, totalDays);
+                targetAngle = dateToAngle(startDoy - 0.5, totalDays);
             }
             const initialPos = calculateInitialAnnotationPosition(targetAngle);
             newAnnotation.x = initialPos.x;
@@ -2287,40 +2292,36 @@
                 const title = typeof annotation === 'string' ? annotation : annotation.title;
                 const hidden = typeof annotation === 'object' && annotation.hidden;
 
-                // Check for multi-day event
-                const hasEndDate = typeof annotation === 'object' && annotation.endMonth !== undefined;
+                // Get end date (defaults to start date if not set)
+                const endMonthIdx = typeof annotation === 'object' && annotation.endMonth !== undefined ? annotation.endMonth : startMonth;
+                const endDayNum = typeof annotation === 'object' && annotation.endDay !== undefined ? annotation.endDay : day;
+                const isMultiDay = endMonthIdx !== startMonth || endDayNum !== day;
 
-                if (hasEndDate) {
-                    // Add to all days in the range
-                    const startDoy = getDayOfYearFromMonthDay(startMonth, day, year);
-                    const endDoy = getDayOfYearFromMonthDay(annotation.endMonth, annotation.endDay, year);
-                    const duration = endDoy - startDoy + 1;
-                    // Hidden multi-day events get extra fading, regular multi-day > 4 days also faded
-                    const faded = hidden ? true : (duration > 4);
+                // Calculate day of year range
+                const startDoy = getDayOfYearFromMonthDay(startMonth, day, year);
+                const endDoy = getDayOfYearFromMonthDay(endMonthIdx, endDayNum, year);
+                const duration = endDoy - startDoy + 1;
 
-                    // Iterate through days in range
-                    let currentDoy = startDoy;
-                    let currentMonth = startMonth;
-                    let currentDay = day;
+                // Hidden events and multi-day events > 4 days get fading
+                const faded = hidden ? true : (isMultiDay && duration > 4);
 
-                    while (currentDoy <= endDoy) {
-                        const dayKey = `${currentMonth}-${currentDay}`;
-                        if (!dayEventsMap[dayKey]) dayEventsMap[dayKey] = [];
-                        dayEventsMap[dayKey].push({ color, title, faded, hidden });
+                // Iterate through days in range (for single-day, this is just one iteration)
+                let currentDoy = startDoy;
+                let currentMonth = startMonth;
+                let currentDay = day;
 
-                        // Move to next day
-                        currentDay++;
-                        if (currentDay > getDaysInMonth(currentMonth, year)) {
-                            currentDay = 1;
-                            currentMonth++;
-                        }
-                        currentDoy++;
-                    }
-                } else {
-                    // Single day event - hidden events get faded
-                    const dayKey = `${startMonth}-${day}`;
+                while (currentDoy <= endDoy) {
+                    const dayKey = `${currentMonth}-${currentDay}`;
                     if (!dayEventsMap[dayKey]) dayEventsMap[dayKey] = [];
-                    dayEventsMap[dayKey].push({ color, title, faded: hidden, hidden });
+                    dayEventsMap[dayKey].push({ color, title, faded, hidden });
+
+                    // Move to next day
+                    currentDay++;
+                    if (currentDay > getDaysInMonth(currentMonth, year)) {
+                        currentDay = 1;
+                        currentMonth++;
+                    }
+                    currentDoy++;
                 }
             });
         }
@@ -3150,17 +3151,18 @@
                         startDay: startDay
                     });
                 } else {
-                    const hasEndDate = annotation.endMonth !== undefined;
-                    const endMonthIdx = hasEndDate ? annotation.endMonth : startMonthIdx;
-                    const endDay = hasEndDate ? annotation.endDay : startDay;
+                    // Get end date (defaults to start date if not set)
+                    const endMonthIdx = annotation.endMonth !== undefined ? annotation.endMonth : startMonthIdx;
+                    const endDay = annotation.endDay !== undefined ? annotation.endDay : startDay;
+                    const isMultiDay = endMonthIdx !== startMonthIdx || endDay !== startDay;
                     const endDoy = getDayOfYearFromMonthDay(endMonthIdx, endDay, year);
                     const durationDays = endDoy - startDoy + 1;
 
                     // Skip multi-day events if we only want single-day
-                    if (singleDayOnly && hasEndDate) return;
+                    if (singleDayOnly && isMultiDay) return;
 
                     let rangeLabel = null;
-                    if (hasEndDate) {
+                    if (isMultiDay) {
                         const startAbbr = MONTHS[startMonthIdx].substring(0, 3);
                         const endAbbr = MONTHS[endMonthIdx].substring(0, 3);
                         if (startMonthIdx === endMonthIdx) {
@@ -3176,7 +3178,7 @@
                         title: annotation.title,
                         color: annotation.color || DEFAULT_COLOR,
                         hidden: annotation.hidden || false,
-                        isMultiDay: hasEndDate,
+                        isMultiDay,
                         rangeLabel,
                         durationDays,
                         startMonth: startMonthIdx,
@@ -3201,9 +3203,10 @@
             const startMonthIdx = startMonth - 1;
 
             annList.forEach((annotation, index) => {
-                const isMultiDay = typeof annotation === 'object' && annotation.endMonth !== undefined;
-                const endMonthIdx = isMultiDay ? annotation.endMonth : startMonthIdx;
-                const endDay = isMultiDay ? annotation.endDay : startDay;
+                // Get end date (defaults to start date if not set)
+                const endMonthIdx = typeof annotation === 'object' && annotation.endMonth !== undefined ? annotation.endMonth : startMonthIdx;
+                const endDay = typeof annotation === 'object' && annotation.endDay !== undefined ? annotation.endDay : startDay;
+                const isMultiDay = endMonthIdx !== startMonthIdx || endDay !== startDay;
 
                 let rangeLabel = null;
                 if (isMultiDay) {
@@ -3402,9 +3405,13 @@
         // Set selected date to the event's start date
         selectedDate = { month: startMonth - 1, day: startDay };
 
-        // If multi-day, set end date
-        if (annotation.endMonth !== undefined) {
-            selectedEndDate = { month: annotation.endMonth, day: annotation.endDay };
+        // Check if multi-day (end date differs from start date)
+        const endMonth = annotation.endMonth !== undefined ? annotation.endMonth : startMonth - 1;
+        const endDay = annotation.endDay !== undefined ? annotation.endDay : startDay;
+        const isMultiDay = endMonth !== startMonth - 1 || endDay !== startDay;
+
+        if (isMultiDay) {
+            selectedEndDate = { month: endMonth, day: endDay };
         } else {
             selectedEndDate = null;
         }
@@ -3413,8 +3420,8 @@
 
         // Populate date inputs
         startDateInput.value = dateToInputValue(startMonth - 1, startDay);
-        if (selectedEndDate) {
-            endDateInput.value = dateToInputValue(selectedEndDate.month, selectedEndDate.day);
+        if (isMultiDay) {
+            endDateInput.value = dateToInputValue(endMonth, endDay);
             endDateContainer.style.display = 'flex';
         } else {
             endDateInput.value = '';
