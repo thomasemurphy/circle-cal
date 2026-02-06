@@ -1375,21 +1375,13 @@
         const endDay = typeof annotation === 'object' && annotation.endDay !== undefined ? annotation.endDay : day;
         const isMultiDay = endMonth !== month - 1 || endDay !== day;
 
-        if (isMultiDay) {
-            selectedEndDate = { month: endMonth, day: endDay };
-        } else {
-            selectedEndDate = null;
-        }
+        // Always set end date (same as start for single-day events)
+        selectedEndDate = { month: endMonth, day: endDay };
 
-        // Populate date inputs
+        // Populate date inputs - always show end date
         startDateInput.value = dateToInputValue(month - 1, day);
-        if (isMultiDay) {
-            endDateInput.value = dateToInputValue(endMonth, endDay);
-            endDateContainer.style.display = 'flex';
-        } else {
-            endDateInput.value = '';
-            endDateContainer.style.display = 'none';
-        }
+        endDateInput.value = dateToInputValue(endMonth, endDay);
+        endDateContainer.style.display = 'flex';
 
         // Hide existing annotations list and "also on this day" when editing
         existingAnnotations.innerHTML = '';
@@ -1891,16 +1883,12 @@
 
         // Populate date inputs
         startDateInput.value = dateToInputValue(selectedDate.month, selectedDate.day);
-        if (selectedEndDate && compareDates(selectedEndDate.month, selectedEndDate.day, selectedDate.month, selectedDate.day) > 0) {
-            // Multi-day range
-            endDateInput.value = dateToInputValue(selectedEndDate.month, selectedEndDate.day);
-            endDateContainer.style.display = 'flex';
-        } else {
-            // Single day
-            selectedEndDate = null;
-            endDateInput.value = '';
-            endDateContainer.style.display = 'none';
+        // Always show end date (same as start for single-day)
+        if (!selectedEndDate || compareDates(selectedEndDate.month, selectedEndDate.day, selectedDate.month, selectedDate.day) <= 0) {
+            selectedEndDate = { month: selectedDate.month, day: selectedDate.day };
         }
+        endDateInput.value = dateToInputValue(selectedEndDate.month, selectedEndDate.day);
+        endDateContainer.style.display = 'flex';
 
         // Clear existing annotations (used for edit mode)
         existingAnnotations.innerHTML = '';
@@ -2047,11 +2035,11 @@
 
         // Update selectedDate and selectedEndDate from inputs
         selectedDate = startDateValue;
-        if (endDateValue && endDateContainer.style.display !== 'none' &&
-            compareDates(endDateValue.month, endDateValue.day, startDateValue.month, startDateValue.day) > 0) {
+        // Always set end date (use end input value if valid and >= start, otherwise use start date)
+        if (endDateValue && compareDates(endDateValue.month, endDateValue.day, startDateValue.month, startDateValue.day) >= 0) {
             selectedEndDate = endDateValue;
         } else {
-            selectedEndDate = null;
+            selectedEndDate = { month: startDateValue.month, day: startDateValue.day };
         }
 
         const text = annotationInput.value.trim();
@@ -2777,11 +2765,11 @@
             const newStart = inputValueToDate(startDateInput.value);
             if (newStart) {
                 selectedDate = newStart;
-                // If end date exists and is now before start date, clear it
+                // If end date is now before start date, set it to start date
                 const endValue = inputValueToDate(endDateInput.value);
-                if (endValue && compareDates(endValue.month, endValue.day, newStart.month, newStart.day) <= 0) {
-                    endDateInput.value = '';
-                    selectedEndDate = null;
+                if (!endValue || compareDates(endValue.month, endValue.day, newStart.month, newStart.day) < 0) {
+                    endDateInput.value = dateToInputValue(newStart.month, newStart.day);
+                    selectedEndDate = { month: newStart.month, day: newStart.day };
                 }
             }
         });
@@ -2790,13 +2778,13 @@
             const newEnd = inputValueToDate(endDateInput.value);
             const startValue = inputValueToDate(startDateInput.value);
             if (newEnd && startValue) {
-                // Ensure end date is after start date
-                if (compareDates(newEnd.month, newEnd.day, startValue.month, startValue.day) > 0) {
+                // Ensure end date is >= start date
+                if (compareDates(newEnd.month, newEnd.day, startValue.month, startValue.day) >= 0) {
                     selectedEndDate = newEnd;
                 } else {
-                    // End date is before or equal to start, clear it
-                    endDateInput.value = '';
-                    selectedEndDate = null;
+                    // End date is before start, set it to start date
+                    endDateInput.value = dateToInputValue(startValue.month, startValue.day);
+                    selectedEndDate = { month: startValue.month, day: startValue.day };
                 }
             }
         });
@@ -3365,13 +3353,13 @@
     function openModalFromList(month, day) {
         // month is 0-indexed
         selectedDate = { month: month, day: day };
-        selectedEndDate = null;
+        selectedEndDate = { month: month, day: day }; // End date same as start
         editingAnnotation = null;
 
-        // Populate date inputs
+        // Populate date inputs - always show end date
         startDateInput.value = dateToInputValue(month, day);
-        endDateInput.value = '';
-        endDateContainer.style.display = 'none';
+        endDateInput.value = dateToInputValue(month, day);
+        endDateContainer.style.display = 'flex';
 
         // Hide existing annotations and "also on this day" sections
         existingAnnotations.innerHTML = '';
@@ -3410,23 +3398,15 @@
         const endDay = annotation.endDay !== undefined ? annotation.endDay : startDay;
         const isMultiDay = endMonth !== startMonth - 1 || endDay !== startDay;
 
-        if (isMultiDay) {
-            selectedEndDate = { month: endMonth, day: endDay };
-        } else {
-            selectedEndDate = null;
-        }
+        // Always set end date (same as start for single-day events)
+        selectedEndDate = { month: endMonth, day: endDay };
 
         editingAnnotation = { dateKey, index };
 
-        // Populate date inputs
+        // Populate date inputs - always show end date
         startDateInput.value = dateToInputValue(startMonth - 1, startDay);
-        if (isMultiDay) {
-            endDateInput.value = dateToInputValue(endMonth, endDay);
-            endDateContainer.style.display = 'flex';
-        } else {
-            endDateInput.value = '';
-            endDateContainer.style.display = 'none';
-        }
+        endDateInput.value = dateToInputValue(endMonth, endDay);
+        endDateContainer.style.display = 'flex';
 
         // Hide existing annotations list when editing
         existingAnnotations.innerHTML = '';
