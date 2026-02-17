@@ -214,14 +214,6 @@ body {
     fill: var(--range-selected-weekend);
 }
 
-.day-segment.has-event {
-    fill: #ff6360;
-}
-
-.day-segment.weekend.has-event {
-    filter: brightness(0.88);
-}
-
 .day-segment.has-event:hover,
 .day-segment.has-event.hovered,
 .day-segment.has-event.linked-hover {
