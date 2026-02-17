@@ -24,6 +24,8 @@
     // Range selection state
     let isSelectingRange = false;
     let rangeStartDate = null;
+    let circleDragFromEvent = null; // {dateKey, index} if mousedown was on an event subsegment
+    let circleDragMoved = false;    // true if mouse moved to a different day during drag
 
     // Zoom state (continuous)
     const MIN_ZOOM = 0.8;
@@ -876,14 +878,14 @@
     }
 
     function formatDate(month, day, includeWeekday = false) {
-        const dateStr = `${MONTHS[month]} ${day}`;
         if (includeWeekday) {
             const year = new Date().getFullYear();
             const date = new Date(year, month, day);
-            const weekday = date.toLocaleDateString('en-US', { weekday: 'long' });
-            return `${weekday}, ${dateStr}`;
+            const weekday = date.toLocaleDateString('en-US', { weekday: 'short' });
+            const monthAbbr = MONTHS[month].substring(0, 3);
+            return `${weekday}, ${monthAbbr} ${day}`;
         }
-        return dateStr;
+        return `${MONTHS[month]} ${day}`;
     }
 
     function getDateKey(month, day) {
@@ -1639,13 +1641,7 @@
         const month = parseInt(e.target.getAttribute('data-month'));
         const day = parseInt(e.target.getAttribute('data-day'));
 
-        let text = formatDate(month, day);
-
-        // Get all event titles that span this date (including multi-day events)
-        const titles = getEventTitlesForDate(month, day);
-        if (titles.length > 0) {
-            text += ': ' + titles.join(', ');
-        }
+        let text = formatDate(month, day, true);
 
         tooltip.textContent = text;
         tooltip.style.display = 'block';
@@ -1823,6 +1819,16 @@
         const month = parseInt(e.target.getAttribute('data-month'));
         const day = parseInt(e.target.getAttribute('data-day'));
 
+        // Track if mousedown was on an event subsegment
+        if (e.target.classList.contains('event-subsegment')) {
+            const dateKey = e.target.getAttribute('data-date-key');
+            const index = parseInt(e.target.getAttribute('data-event-index'));
+            circleDragFromEvent = { dateKey, index };
+        } else {
+            circleDragFromEvent = null;
+        }
+        circleDragMoved = false;
+
         isSelectingRange = true;
         rangeStartDate = { month, day };
         selectedDate = { month, day };
@@ -1830,7 +1836,8 @@
 
         // Highlight the starting day
         clearRangeHighlight();
-        e.target.classList.add('range-selected');
+        const segment = document.querySelector(`.day-segment[data-month="${month}"][data-day="${day}"]`);
+        if (segment) segment.classList.add('range-selected');
 
         // Add global mouseup listener in case user releases outside a day segment
         document.addEventListener('mouseup', handleGlobalMouseUp);
@@ -1842,6 +1849,11 @@
         const month = parseInt(e.target.getAttribute('data-month'));
         const day = parseInt(e.target.getAttribute('data-day'));
         const year = new Date().getFullYear();
+
+        // Track if we moved to a different day (used for event click vs drag detection)
+        if (month !== rangeStartDate.month || day !== rangeStartDate.day) {
+            circleDragMoved = true;
+        }
 
         // Only allow forward selection (end >= start)
         if (compareDates(month, day, rangeStartDate.month, rangeStartDate.day) >= 0) {
@@ -1856,11 +1868,22 @@
         const month = parseInt(e.target.getAttribute('data-month'));
         const day = parseInt(e.target.getAttribute('data-day'));
 
+        // If clicked (not dragged) on an event subsegment, open edit modal
+        if (circleDragFromEvent && !circleDragMoved) {
+            isSelectingRange = false;
+            document.removeEventListener('mouseup', handleGlobalMouseUp);
+            clearRangeHighlight();
+            openEditModal(circleDragFromEvent.dateKey, circleDragFromEvent.index);
+            circleDragFromEvent = null;
+            return;
+        }
+
         // If released on valid forward date, update end date
         if (compareDates(month, day, rangeStartDate.month, rangeStartDate.day) >= 0) {
             selectedEndDate = { month, day };
         }
 
+        circleDragFromEvent = null;
         finishRangeSelection();
     }
 
@@ -1868,8 +1891,9 @@
         if (!isSelectingRange) return;
         document.removeEventListener('mouseup', handleGlobalMouseUp);
 
-        // If mouseup happened outside day segments, use current selection
-        if (!e.target.classList.contains('day-segment')) {
+        // If mouseup happened outside day segments and event subsegments, use current selection
+        if (!e.target.classList.contains('day-segment') && !e.target.classList.contains('event-subsegment')) {
+            circleDragFromEvent = null;
             finishRangeSelection();
         }
     }
@@ -2273,7 +2297,7 @@
             const [month, day] = dateKey.split('-').map(Number);
             const startMonth = month - 1; // Convert to 0-indexed
 
-            annotations[dateKey].forEach(annotation => {
+            annotations[dateKey].forEach((annotation, annIndex) => {
                 const color = (typeof annotation === 'object' && annotation.color)
                     ? annotation.color
                     : DEFAULT_COLOR;
@@ -2301,7 +2325,7 @@
                 while (currentDoy <= endDoy) {
                     const dayKey = `${currentMonth}-${currentDay}`;
                     if (!dayEventsMap[dayKey]) dayEventsMap[dayKey] = [];
-                    dayEventsMap[dayKey].push({ color, title, faded, hidden });
+                    dayEventsMap[dayKey].push({ color, title, faded, hidden, dateKey, annIndex });
 
                     // Move to next day
                     currentDay++;
@@ -2327,73 +2351,51 @@
 
             segment.classList.add('has-event');
 
-            // Get unique colors while preserving order, track faded and hidden state
-            const uniqueColors = [];
-            const colorToTitles = {};
-            const colorToFaded = {};
-            const colorToHidden = {};
-            eventsList.forEach(evt => {
-                if (!colorToTitles[evt.color]) {
-                    colorToTitles[evt.color] = [];
-                    colorToFaded[evt.color] = evt.faded;
-                    colorToHidden[evt.color] = evt.hidden;
-                    uniqueColors.push(evt.color);
-                }
-                colorToTitles[evt.color].push(evt.title);
-                // If any event with this color is not faded, don't fade it
-                if (!evt.faded) colorToFaded[evt.color] = false;
-                // If any event with this color is not hidden, don't hide it
-                if (!evt.hidden) colorToHidden[evt.color] = false;
-            });
-
-            // Calculate opacity: hidden events are more muted, faded (long multi-day) also muted
-            const getOpacity = (color) => {
-                if (colorToHidden[color]) return 0.25; // Hidden events very muted
-                if (colorToFaded[color]) return 0.4;   // Long multi-day events somewhat muted
+            // Calculate opacity per event
+            const getEventOpacity = (evt) => {
+                if (evt.hidden) return 0.25;
+                if (evt.faded) return 0.4;
                 return 1;
             };
 
-            if (uniqueColors.length === 1) {
-                // Single color - just set the fill
-                const color = uniqueColors[0];
-                segment.style.fill = color;
-                segment.style.opacity = getOpacity(color);
-            } else {
-                // Multiple colors - create radial sub-segments
-                segment.style.fill = 'transparent';
+            // Always create subsegments - events fill outer portion, inner portion is blank space
+            const dayOfYear = parseInt(segment.getAttribute('data-day-of-year'));
+            const startAngle = dateToAngle(dayOfYear - 1, totalDays);
+            const endAngle = dateToAngle(dayOfYear, totalDays);
 
-                const dayOfYear = parseInt(segment.getAttribute('data-day-of-year'));
-                const startAngle = dateToAngle(dayOfYear - 1, totalDays);
-                const endAngle = dateToAngle(dayOfYear, totalDays);
+            const radialRange = OUTER_RADIUS - INNER_RADIUS;
+            const blankFraction = 0.2; // Inner 20% is blank (clickable for new event)
+            const eventInnerR = INNER_RADIUS + radialRange * blankFraction;
+            const eventRadialRange = OUTER_RADIUS - eventInnerR;
 
-                // Split the arc radially (from inner to outer) into segments
-                const numColors = uniqueColors.length;
-                const radiusStep = (OUTER_RADIUS - INNER_RADIUS) / numColors;
+            const numEvents = eventsList.length;
+            const radiusStep = eventRadialRange / numEvents;
 
-                uniqueColors.forEach((color, i) => {
-                    const innerR = INNER_RADIUS + i * radiusStep;
-                    const outerR = INNER_RADIUS + (i + 1) * radiusStep;
+            eventsList.forEach((evt, i) => {
+                const innerR = eventInnerR + i * radiusStep;
+                const outerR = eventInnerR + (i + 1) * radiusStep;
 
-                    const subPath = document.createElementNS(SVG_NS, 'path');
-                    subPath.setAttribute('d', createArcPath(startAngle, endAngle, innerR, outerR));
-                    subPath.setAttribute('class', 'event-subsegment');
-                    subPath.setAttribute('data-month', monthIdx);
-                    subPath.setAttribute('data-day', dayNum);
-                    subPath.setAttribute('data-color', color);
-                    subPath.setAttribute('data-titles', colorToTitles[color].join(', '));
-                    subPath.style.fill = color;
-                    subPath.style.opacity = getOpacity(color);
+                const subPath = document.createElementNS(SVG_NS, 'path');
+                subPath.setAttribute('d', createArcPath(startAngle, endAngle, innerR, outerR));
+                subPath.setAttribute('class', 'event-subsegment');
+                subPath.setAttribute('data-month', monthIdx);
+                subPath.setAttribute('data-day', dayNum);
+                subPath.setAttribute('data-color', evt.color);
+                subPath.setAttribute('data-titles', evt.title);
+                subPath.setAttribute('data-date-key', evt.dateKey);
+                subPath.setAttribute('data-event-index', evt.annIndex);
+                subPath.style.fill = evt.color;
+                subPath.style.opacity = getEventOpacity(evt);
 
-                    // Add hover handlers for tooltip
-                    subPath.addEventListener('mouseenter', handleSubsegmentHover);
-                    subPath.addEventListener('mouseleave', handleSubsegmentLeave);
-                    subPath.addEventListener('mousedown', handleDayMouseDown);
-                    subPath.addEventListener('mouseenter', handleDayRangeMove);
-                    subPath.addEventListener('mouseup', handleDayMouseUp);
+                // Add hover handlers for tooltip
+                subPath.addEventListener('mouseenter', handleSubsegmentHover);
+                subPath.addEventListener('mouseleave', handleSubsegmentLeave);
+                subPath.addEventListener('mousedown', handleDayMouseDown);
+                subPath.addEventListener('mouseenter', handleDayRangeMove);
+                subPath.addEventListener('mouseup', handleDayMouseUp);
 
-                    subsegmentsGroup.appendChild(subPath);
-                });
-            }
+                subsegmentsGroup.appendChild(subPath);
+            });
         }
     }
 
@@ -2402,7 +2404,7 @@
         const month = parseInt(e.target.getAttribute('data-month'));
         const day = parseInt(e.target.getAttribute('data-day'));
 
-        const text = `${formatDate(month, day)}: ${titles}`;
+        const text = `${formatDate(month, day, true)}: ${titles}`;
 
         tooltip.textContent = text;
         tooltip.style.display = 'block';
@@ -2872,7 +2874,8 @@
 
     // ==================== LIST VIEW ====================
 
-    let currentView = 'circle'; // 'circle' or 'list'
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    let currentView = isMobile ? 'list' : 'circle';
     const circleViewBtn = document.getElementById('circle-view-btn');
     const listViewBtn = document.getElementById('list-view-btn');
     const circleViewContainer = document.getElementById('circle-view');
@@ -2887,6 +2890,7 @@
     let isListDragging = false;
     let listDragMoved = false; // Track if mouse actually moved during drag
     let listDragFromEvent = null; // Track event info if drag started from event tile
+    let listViewInitialScrollDone = false;
 
     function switchView(view) {
         currentView = view;
@@ -2976,8 +2980,9 @@
         // Render all event overlays (single-day and multi-day)
         renderEventOverlays(year);
 
-        // Scroll to today after a brief delay to ensure rendering is complete
-        if (todayElement) {
+        // Scroll to today only on the first render
+        if (todayElement && !listViewInitialScrollDone) {
+            listViewInitialScrollDone = true;
             setTimeout(() => {
                 todayElement.scrollIntoView({ block: 'center' });
             }, 50);
@@ -3441,6 +3446,9 @@
     }
 
     function initViewToggle() {
+        // Apply the default view (list on mobile, circle on desktop)
+        switchView(currentView);
+
         if (circleViewBtn) {
             circleViewBtn.addEventListener('click', () => switchView('circle'));
         }
