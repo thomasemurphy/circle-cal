@@ -181,6 +181,9 @@ body {
     transition: all 0.3s ease;
     user-select: none;
     touch-action: none;
+    /* Clip zoomed content to the SVG box so the area outside the circle stays
+       part of the element — keeps the grab cursor and drag-to-pan working there. */
+    overflow: hidden;
 }
 
 #calendar.zoomed {
