@@ -28,6 +28,10 @@ if settings.google_client_id and settings.google_client_secret:
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_DAYS = 30
 
+# Secure cookies require HTTPS; over http://localhost the browser drops them,
+# which would silently break local sign-in. Match the session middleware.
+IS_PRODUCTION = settings.frontend_url.startswith("https")
+
 
 def create_token(user_id: str) -> str:
     expire = datetime.utcnow() + timedelta(days=JWT_EXPIRATION_DAYS)
@@ -138,7 +142,7 @@ async def google_callback(request: Request, db: AsyncSession = Depends(get_db)):
         key="auth_token",
         value=auth_token,
         httponly=True,
-        secure=True,
+        secure=IS_PRODUCTION,
         samesite="lax",
         max_age=JWT_EXPIRATION_DAYS * 24 * 60 * 60,
     )

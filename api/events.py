@@ -15,8 +15,12 @@ async def get_events(
     user: User = Depends(require_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # Personal events only (calendar_id IS NULL); shared-calendar events are
+    # served from /api/calendars/{id}/events.
     result = await db.execute(
-        select(Event).where(Event.user_id == user.id).order_by(Event.month, Event.day)
+        select(Event)
+        .where(Event.user_id == user.id, Event.calendar_id.is_(None))
+        .order_by(Event.month, Event.day)
     )
     return result.scalars().all()
 

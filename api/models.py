@@ -24,7 +24,25 @@ class User(Base):
     birthday_month = Column(Integer, nullable=True)  # 1-12
     birthday_day = Column(Integer, nullable=True)    # 1-31
 
-    events = relationship("Event", back_populates="user", cascade="all, delete-orphan")
+    events = relationship(
+        "Event",
+        back_populates="user",
+        foreign_keys="Event.user_id",
+        cascade="all, delete-orphan",
+    )
+
+    # Shared calendars this user administers
+    administered_calendars = relationship(
+        "Calendar",
+        back_populates="admin",
+        cascade="all, delete-orphan",
+    )
+    # Memberships (calendars this user can access)
+    calendar_memberships = relationship(
+        "CalendarMembership",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
     # Friendship relationships (for future mutual birthday sharing)
     sent_friend_requests = relationship(
@@ -46,6 +64,8 @@ class Event(Base):
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
     user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # Events with a calendar_id belong to a shared calendar; NULL = personal event
+    calendar_id = Column(String(36), ForeignKey("calendars.id", ondelete="CASCADE"), nullable=True)
     month = Column(Integer, nullable=False)
     day = Column(Integer, nullable=False)
     end_month = Column(Integer, nullable=True)  # For multi-day events
@@ -56,7 +76,8 @@ class Event(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    user = relationship("User", back_populates="events")
+    user = relationship("User", back_populates="events", foreign_keys=[user_id])
+    calendar = relationship("Calendar", back_populates="events")
 
 
 class Friendship(Base):
@@ -75,6 +96,43 @@ class Friendship(Base):
 
     __table_args__ = (
         UniqueConstraint('requester_id', 'addressee_id', name='unique_friendship_request'),
+    )
+
+
+class Calendar(Base):
+    """A shared calendar: a named set of events with an admin and subscribers."""
+    __tablename__ = "calendars"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    name = Column(String(255), nullable=False)
+    color = Column(String(7), nullable=False, default="#0ba1ff")  # Hex color for all events
+    admin_user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+    admin = relationship("User", back_populates="administered_calendars")
+    events = relationship("Event", back_populates="calendar", cascade="all, delete-orphan")
+    memberships = relationship(
+        "CalendarMembership",
+        back_populates="calendar",
+        cascade="all, delete-orphan",
+    )
+
+
+class CalendarMembership(Base):
+    """A user's access to a shared calendar, plus their per-user show/hide toggle."""
+    __tablename__ = "calendar_memberships"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    calendar_id = Column(String(36), ForeignKey("calendars.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    is_visible = Column(Boolean, nullable=False, default=False)  # Whether the user shows this calendar
+    created_at = Column(DateTime, server_default=func.now())
+
+    calendar = relationship("Calendar", back_populates="memberships")
+    user = relationship("User", back_populates="calendar_memberships")
+
+    __table_args__ = (
+        UniqueConstraint('calendar_id', 'user_id', name='unique_calendar_membership'),
     )
 
 

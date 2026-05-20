@@ -12,6 +12,7 @@ from .auth import router as auth_router
 from .events import router as events_router
 from .profile import router as profile_router
 from .friends import router as friends_router
+from .calendars import router as calendars_router
 
 settings = get_settings()
 
@@ -80,6 +81,7 @@ app.include_router(auth_router)
 app.include_router(events_router)
 app.include_router(profile_router)
 app.include_router(friends_router)
+app.include_router(calendars_router)
 
 
 @app.get("/health")

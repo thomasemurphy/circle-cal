@@ -61,6 +61,14 @@
                     </svg>
                     <span id="friend-badge" class="notification-badge" style="display: none;">0</span>
                 </button>
+                <button id="calendars-btn" class="icon-btn" title="Calendars">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="16" y1="2" x2="16" y2="6"></line>
+                        <line x1="8" y1="2" x2="8" y2="6"></line>
+                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                    </svg>
+                </button>
                 <button id="settings-btn" class="icon-btn" title="Settings">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <circle cx="12" cy="12" r="3"></circle>
@@ -190,6 +198,64 @@
 
                 <div class="modal-buttons">
                     <button id="friends-close-btn">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="calendars-modal" class="modal">
+            <div class="modal-content calendars-modal-content">
+                <!-- List view: calendars you can access -->
+                <div id="calendars-list-view">
+                    <h3>Calendars</h3>
+                    <p class="settings-description">Toggle a calendar on to show its events on your circle.</p>
+                    <ul id="calendars-list" class="calendars-list"></ul>
+                    <p id="calendars-empty" class="request-status" style="display:none;">You don't have access to any calendars yet.</p>
+                    <div class="modal-buttons">
+                        <button id="calendars-close-btn">Close</button>
+                    </div>
+                </div>
+
+                <!-- Manage view: admin editing one calendar -->
+                <div id="calendar-manage-view" style="display:none;">
+                    <button id="calendar-manage-back" class="link-btn">&larr; Back</button>
+                    <div class="settings-section">
+                        <label class="settings-label">Name</label>
+                        <input type="text" id="calendar-name-input" class="text-input" />
+                        <label class="settings-label">Color</label>
+                        <div class="color-options" id="calendar-color-options">
+                            <button class="color-option" data-color="#ff6360" style="background: #ff6360;"></button>
+                            <button class="color-option" data-color="#ffcc00" style="background: #ffcc00;"></button>
+                            <button class="color-option" data-color="#00c886" style="background: #00c886;"></button>
+                            <button class="color-option" data-color="#0ba1ff" style="background: #0ba1ff;"></button>
+                            <button class="color-option" data-color="#6224ff" style="background: #6224ff;"></button>
+                        </div>
+                        <button id="calendar-meta-save" class="primary-btn">Save</button>
+                    </div>
+
+                    <div class="settings-section">
+                        <label class="settings-label">Subscribers</label>
+                        <div class="add-friend-inputs">
+                            <input type="email" id="calendar-subscriber-email" placeholder="friend@gmail.com" />
+                            <button id="calendar-add-subscriber" class="primary-btn">Add</button>
+                        </div>
+                        <p id="calendar-subscriber-status" class="request-status"></p>
+                        <ul id="calendar-subscribers-list" class="friends-list"></ul>
+                    </div>
+
+                    <div class="settings-section">
+                        <label class="settings-label">Events</label>
+                        <div class="calendar-event-form">
+                            <input type="date" id="calendar-event-date" />
+                            <input type="text" id="calendar-event-title" placeholder="Name / event" />
+                            <button id="calendar-event-save" class="primary-btn">Add</button>
+                        </div>
+                        <p id="calendar-event-status" class="request-status"></p>
+                        <ul id="calendar-events-list" class="calendar-events-list"></ul>
+                    </div>
+
+                    <div class="modal-buttons">
+                        <button id="calendar-manage-close">Done</button>
+                    </div>
                 </div>
             </div>
         </div>

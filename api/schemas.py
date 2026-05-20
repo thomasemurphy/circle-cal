@@ -100,3 +100,46 @@ class FriendshipResponse(BaseModel):
 class FriendRequestSentResponse(BaseModel):
     message: str
     invited: bool = False
+
+
+# Calendar (shared event collection) schemas
+class CalendarResponse(BaseModel):
+    """A calendar the current user can access, with their role and visibility."""
+    id: str
+    name: str
+    color: str
+    is_admin: bool
+    is_visible: bool
+
+    class Config:
+        from_attributes = True
+
+
+class CalendarUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    color: Optional[str] = Field(None, max_length=7)
+
+
+class CalendarVisibilityUpdate(BaseModel):
+    is_visible: bool
+
+
+class CalendarMemberAdd(BaseModel):
+    email: str = Field(min_length=1, max_length=255)
+
+
+class CalendarMemberResponse(BaseModel):
+    """A subscriber of a calendar (excludes the admin)."""
+    user_id: str
+    email: str
+    name: Optional[str]
+    picture_url: Optional[str]
+    is_visible: bool
+
+    class Config:
+        from_attributes = True
+
+
+class CalendarMemberAddResponse(BaseModel):
+    message: str
+    member: Optional[CalendarMemberResponse] = None

@@ -53,6 +53,32 @@ migrations = [
         UNIQUE(inviter_id, invited_email)
     )
     """,
+
+    # Shared calendars (named sets of events with an admin + subscribers)
+    """
+    CREATE TABLE IF NOT EXISTS calendars (
+        id VARCHAR(36) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        color VARCHAR(7) NOT NULL DEFAULT '#0ba1ff',
+        admin_user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+
+    # Calendar memberships (access + per-user show/hide toggle)
+    """
+    CREATE TABLE IF NOT EXISTS calendar_memberships (
+        id VARCHAR(36) PRIMARY KEY,
+        calendar_id VARCHAR(36) NOT NULL REFERENCES calendars(id) ON DELETE CASCADE,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        is_visible BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(calendar_id, user_id)
+    )
+    """,
+
+    # Link events to a shared calendar (NULL = personal event)
+    "ALTER TABLE events ADD COLUMN IF NOT EXISTS calendar_id VARCHAR(36) REFERENCES calendars(id) ON DELETE CASCADE",
 ]
 
 for sql in migrations:

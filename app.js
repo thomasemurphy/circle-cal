@@ -91,6 +91,34 @@
     let friendsPollInterval = null;
     const FRIENDS_POLL_INTERVAL = 30000; // 30 seconds
 
+    // Calendars (shared event collections)
+    const calendarsBtn = document.getElementById('calendars-btn');
+    const calendarsModal = document.getElementById('calendars-modal');
+    const calendarsListView = document.getElementById('calendars-list-view');
+    const calendarsListEl = document.getElementById('calendars-list');
+    const calendarsEmptyEl = document.getElementById('calendars-empty');
+    const calendarsCloseBtn = document.getElementById('calendars-close-btn');
+    const calendarManageView = document.getElementById('calendar-manage-view');
+    const calendarManageBack = document.getElementById('calendar-manage-back');
+    const calendarManageClose = document.getElementById('calendar-manage-close');
+    const calendarNameInput = document.getElementById('calendar-name-input');
+    const calendarColorOptions = document.getElementById('calendar-color-options');
+    const calendarMetaSave = document.getElementById('calendar-meta-save');
+    const calendarSubscriberEmail = document.getElementById('calendar-subscriber-email');
+    const calendarAddSubscriber = document.getElementById('calendar-add-subscriber');
+    const calendarSubscriberStatus = document.getElementById('calendar-subscriber-status');
+    const calendarSubscribersList = document.getElementById('calendar-subscribers-list');
+    const calendarEventDate = document.getElementById('calendar-event-date');
+    const calendarEventTitle = document.getElementById('calendar-event-title');
+    const calendarEventSave = document.getElementById('calendar-event-save');
+    const calendarEventStatus = document.getElementById('calendar-event-status');
+    const calendarEventsList = document.getElementById('calendar-events-list');
+
+    let calendars = [];                 // [{id,name,color,is_admin,is_visible}]
+    let managingCalendar = null;        // calendar object currently in manage view
+    let managingColor = null;           // selected color in manage view
+    let editingCalendarEventId = null;  // id of calendar event being edited (else null = add)
+
     // API helper
     async function api(endpoint, options = {}) {
         const response = await fetch(`${API_URL}${endpoint}`, {
@@ -523,9 +551,321 @@
             });
             // Inject birthday events (own and friends)
             injectBirthdayEvent();
+            // Merge in events from any calendars the user has toggled on
+            await loadCalendarEventsIntoAnnotations();
             updateAnnotationMarkers();
         } catch (e) {
             console.error('Failed to load events:', e);
+        }
+    }
+
+    // Fetch the user's calendars and merge the events of visible ones into
+    // `annotations`. Calendar events are read-only inline (managed in the panel).
+    async function loadCalendarEventsIntoAnnotations() {
+        if (!currentUser) return;
+        try {
+            calendars = await api('/api/calendars');
+        } catch (e) {
+            console.error('Failed to load calendars:', e);
+            calendars = [];
+            return;
+        }
+        const visible = calendars.filter(c => c.is_visible);
+        for (const cal of visible) {
+            let calEvents;
+            try {
+                calEvents = await api(`/api/calendars/${cal.id}/events`);
+            } catch (e) {
+                console.error(`Failed to load events for calendar ${cal.id}:`, e);
+                continue;
+            }
+            calEvents.forEach(event => {
+                const key = `${event.month}-${event.day}`;
+                if (!annotations[key]) annotations[key] = [];
+                const annotation = {
+                    title: event.title,
+                    color: cal.color,           // one color per calendar
+                    hidden: false,
+                    isCalendarEvent: true,
+                    calendarId: cal.id,
+                    calendarEventId: event.id,
+                    readOnly: !cal.is_admin,
+                };
+                if (event.end_month && event.end_day &&
+                    (event.end_month !== event.month || event.end_day !== event.day)) {
+                    annotation.endMonth = event.end_month - 1; // 0-indexed
+                    annotation.endDay = event.end_day;
+                }
+                annotations[key].push(annotation);
+            });
+        }
+    }
+
+    // ==================== CALENDARS PANEL ====================
+
+    function escapeHtml(str) {
+        return String(str ?? '').replace(/[&<>"']/g, c => (
+            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+        ));
+    }
+
+    function openCalendarsModal() {
+        showCalendarsListView();
+        renderCalendarsList();
+        calendarsModal.style.display = 'flex';
+        // Refresh from server in the background
+        api('/api/calendars').then(list => {
+            calendars = list;
+            if (calendarsModal.style.display === 'flex' &&
+                calendarManageView.style.display === 'none') {
+                renderCalendarsList();
+            }
+        }).catch(() => {});
+    }
+
+    function closeCalendarsModal() {
+        calendarsModal.style.display = 'none';
+    }
+
+    function showCalendarsListView() {
+        calendarManageView.style.display = 'none';
+        calendarsListView.style.display = 'block';
+        managingCalendar = null;
+        editingCalendarEventId = null;
+    }
+
+    function renderCalendarsList() {
+        if (!calendars.length) {
+            calendarsListEl.innerHTML = '';
+            calendarsEmptyEl.style.display = 'block';
+            return;
+        }
+        calendarsEmptyEl.style.display = 'none';
+        calendarsListEl.innerHTML = calendars.map(cal => `
+            <li class="calendar-row">
+                <label class="calendar-toggle">
+                    <input type="checkbox" data-id="${cal.id}" ${cal.is_visible ? 'checked' : ''}>
+                    <span class="calendar-swatch" style="background:${escapeHtml(cal.color)}"></span>
+                    <span class="calendar-name">${escapeHtml(cal.name)}</span>
+                </label>
+                ${cal.is_admin ? `<button class="link-btn manage-cal-btn" data-id="${cal.id}">Manage</button>` : ''}
+            </li>
+        `).join('');
+
+        calendarsListEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            cb.addEventListener('change', () => handleToggleCalendar(cb.dataset.id, cb.checked));
+        });
+        calendarsListEl.querySelectorAll('.manage-cal-btn').forEach(btn => {
+            btn.addEventListener('click', () => openCalendarManageView(calendars.find(c => c.id === btn.dataset.id)));
+        });
+    }
+
+    async function handleToggleCalendar(calId, isVisible) {
+        const cal = calendars.find(c => c.id === calId);
+        if (cal) cal.is_visible = isVisible;
+        try {
+            await api(`/api/calendars/${calId}/visibility`, {
+                method: 'PATCH',
+                body: JSON.stringify({ is_visible: isVisible }),
+            });
+        } catch (e) {
+            console.error('Failed to set visibility:', e);
+            if (cal) cal.is_visible = !isVisible; // revert
+            renderCalendarsList();
+            return;
+        }
+        await loadEventsFromAPI(); // rebuild annotations + re-render circle/list
+    }
+
+    // ---- Admin manage view ----
+
+    function openCalendarManageView(cal) {
+        if (!cal || !cal.is_admin) return;
+        managingCalendar = cal;
+        editingCalendarEventId = null;
+        managingColor = cal.color;
+
+        calendarsListView.style.display = 'none';
+        calendarManageView.style.display = 'block';
+        if (calendarsModal.style.display !== 'flex') calendarsModal.style.display = 'flex';
+
+        calendarNameInput.value = cal.name;
+        calendarColorOptions.querySelectorAll('.color-option').forEach(opt => {
+            opt.classList.toggle('selected', opt.getAttribute('data-color') === cal.color);
+        });
+        calendarSubscriberStatus.textContent = '';
+        calendarEventStatus.textContent = '';
+        resetCalendarEventForm();
+
+        loadAndRenderSubscribers();
+        loadAndRenderManageEvents();
+    }
+
+    async function handleSaveCalendarMeta() {
+        if (!managingCalendar) return;
+        const name = calendarNameInput.value.trim();
+        if (!name) return;
+        try {
+            const updated = await api(`/api/calendars/${managingCalendar.id}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ name, color: managingColor }),
+            });
+            // Update local copy
+            const cal = calendars.find(c => c.id === managingCalendar.id);
+            if (cal) { cal.name = updated.name; cal.color = updated.color; }
+            managingCalendar = cal || managingCalendar;
+            calendarSubscriberStatus.textContent = '';
+            await loadEventsFromAPI(); // recolor events on the circle
+            loadAndRenderManageEvents();
+        } catch (e) {
+            console.error('Failed to update calendar:', e);
+        }
+    }
+
+    async function loadAndRenderSubscribers() {
+        if (!managingCalendar) return;
+        let members = [];
+        try {
+            members = await api(`/api/calendars/${managingCalendar.id}/members`);
+        } catch (e) {
+            console.error('Failed to load subscribers:', e);
+        }
+        if (!members.length) {
+            calendarSubscribersList.innerHTML = '<li class="muted-row">No subscribers yet.</li>';
+            return;
+        }
+        calendarSubscribersList.innerHTML = members.map(m => `
+            <li>
+                <div class="friend-info">
+                    ${m.picture_url ? `<img src="${escapeHtml(m.picture_url)}" class="friend-avatar" alt="">` : ''}
+                    <div>
+                        <div class="friend-name">${escapeHtml(m.name || 'Unknown')}</div>
+                        <div class="friend-email">${escapeHtml(m.email)}</div>
+                    </div>
+                </div>
+                <div class="friend-actions">
+                    <button class="remove-btn" data-uid="${m.user_id}">Remove</button>
+                </div>
+            </li>
+        `).join('');
+        calendarSubscribersList.querySelectorAll('.remove-btn').forEach(btn => {
+            btn.addEventListener('click', () => handleRemoveSubscriber(btn.dataset.uid));
+        });
+    }
+
+    async function handleAddSubscriber() {
+        if (!managingCalendar) return;
+        const email = calendarSubscriberEmail.value.trim();
+        if (!email) return;
+        calendarSubscriberStatus.textContent = 'Adding…';
+        try {
+            const res = await api(`/api/calendars/${managingCalendar.id}/members`, {
+                method: 'POST',
+                body: JSON.stringify({ email }),
+            });
+            calendarSubscriberStatus.textContent = res.message || 'Added';
+            if (res.member) calendarSubscriberEmail.value = '';
+            loadAndRenderSubscribers();
+        } catch (e) {
+            calendarSubscriberStatus.textContent = e.message || 'Could not add that person';
+        }
+    }
+
+    async function handleRemoveSubscriber(userId) {
+        if (!managingCalendar) return;
+        try {
+            await api(`/api/calendars/${managingCalendar.id}/members/${userId}`, { method: 'DELETE' });
+            loadAndRenderSubscribers();
+        } catch (e) {
+            console.error('Failed to remove subscriber:', e);
+        }
+    }
+
+    async function loadAndRenderManageEvents() {
+        if (!managingCalendar) return;
+        let evs = [];
+        try {
+            evs = await api(`/api/calendars/${managingCalendar.id}/events`);
+        } catch (e) {
+            console.error('Failed to load calendar events:', e);
+        }
+        if (!evs.length) {
+            calendarEventsList.innerHTML = '<li class="muted-row">No events yet.</li>';
+            return;
+        }
+        calendarEventsList.innerHTML = evs.map(ev => {
+            const label = `${MONTHS[ev.month - 1].substring(0, 3)} ${ev.day}`;
+            return `
+                <li>
+                    <span class="cal-event-label"><strong>${escapeHtml(label)}</strong> ${escapeHtml(ev.title)}</span>
+                    <span class="cal-event-actions">
+                        <button class="link-btn cal-event-edit" data-id="${ev.id}" data-month="${ev.month}" data-day="${ev.day}" data-title="${escapeHtml(ev.title)}">Edit</button>
+                        <button class="remove-btn cal-event-del" data-id="${ev.id}">Delete</button>
+                    </span>
+                </li>
+            `;
+        }).join('');
+        calendarEventsList.querySelectorAll('.cal-event-edit').forEach(btn => {
+            btn.addEventListener('click', () => startEditCalendarEvent(
+                btn.dataset.id, parseInt(btn.dataset.month), parseInt(btn.dataset.day), btn.dataset.title));
+        });
+        calendarEventsList.querySelectorAll('.cal-event-del').forEach(btn => {
+            btn.addEventListener('click', () => handleDeleteCalendarEvent(btn.dataset.id));
+        });
+    }
+
+    function resetCalendarEventForm() {
+        editingCalendarEventId = null;
+        calendarEventTitle.value = '';
+        calendarEventDate.value = '';
+        calendarEventSave.textContent = 'Add';
+    }
+
+    function startEditCalendarEvent(eventId, month, day, title) {
+        editingCalendarEventId = eventId;
+        calendarEventTitle.value = title;
+        calendarEventDate.value = dateToInputValue(month - 1, day); // dateToInputValue takes 0-indexed month
+        calendarEventSave.textContent = 'Save';
+        calendarEventTitle.focus();
+    }
+
+    async function handleSaveCalendarEvent() {
+        if (!managingCalendar) return;
+        const title = calendarEventTitle.value.trim();
+        const dateVal = inputValueToDate(calendarEventDate.value); // {month: 0-indexed, day}
+        if (!title || !dateVal) {
+            calendarEventStatus.textContent = 'Pick a date and enter a title.';
+            return;
+        }
+        const body = { month: dateVal.month + 1, day: dateVal.day, title };
+        try {
+            if (editingCalendarEventId) {
+                await api(`/api/calendars/${managingCalendar.id}/events/${editingCalendarEventId}`, {
+                    method: 'PUT', body: JSON.stringify(body),
+                });
+            } else {
+                await api(`/api/calendars/${managingCalendar.id}/events`, {
+                    method: 'POST', body: JSON.stringify(body),
+                });
+            }
+            calendarEventStatus.textContent = '';
+            resetCalendarEventForm();
+            loadAndRenderManageEvents();
+            await loadEventsFromAPI(); // reflect on the circle if calendar is visible
+        } catch (e) {
+            calendarEventStatus.textContent = e.message || 'Could not save event';
+        }
+    }
+
+    async function handleDeleteCalendarEvent(eventId) {
+        if (!managingCalendar) return;
+        try {
+            await api(`/api/calendars/${managingCalendar.id}/events/${eventId}`, { method: 'DELETE' });
+            if (editingCalendarEventId === eventId) resetCalendarEventForm();
+            loadAndRenderManageEvents();
+            await loadEventsFromAPI();
+        } catch (e) {
+            console.error('Failed to delete event:', e);
         }
     }
 
@@ -1362,6 +1702,15 @@
         // If this is a birthday event, open settings instead
         if (typeof annotation === 'object' && annotation.isBirthday) {
             openSettingsModal();
+            return;
+        }
+
+        // Calendar events aren't edited inline. Admins manage them in the
+        // Calendars panel; for everyone else they're read-only.
+        if (typeof annotation === 'object' && annotation.isCalendarEvent) {
+            if (!annotation.readOnly) {
+                openCalendarManageView(calendars.find(c => c.id === annotation.calendarId));
+            }
             return;
         }
 
@@ -2756,6 +3105,44 @@
             });
         }
 
+        // Calendars event listeners
+        if (calendarsBtn) calendarsBtn.addEventListener('click', openCalendarsModal);
+        if (calendarsCloseBtn) calendarsCloseBtn.addEventListener('click', closeCalendarsModal);
+        if (calendarManageClose) calendarManageClose.addEventListener('click', closeCalendarsModal);
+        if (calendarManageBack) {
+            calendarManageBack.addEventListener('click', () => {
+                showCalendarsListView();
+                renderCalendarsList();
+            });
+        }
+        if (calendarMetaSave) calendarMetaSave.addEventListener('click', handleSaveCalendarMeta);
+        if (calendarColorOptions) {
+            calendarColorOptions.querySelectorAll('.color-option').forEach(opt => {
+                opt.addEventListener('click', () => {
+                    calendarColorOptions.querySelectorAll('.color-option').forEach(o => o.classList.remove('selected'));
+                    opt.classList.add('selected');
+                    managingColor = opt.getAttribute('data-color');
+                });
+            });
+        }
+        if (calendarAddSubscriber) calendarAddSubscriber.addEventListener('click', handleAddSubscriber);
+        if (calendarSubscriberEmail) {
+            calendarSubscriberEmail.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') handleAddSubscriber();
+            });
+        }
+        if (calendarEventSave) calendarEventSave.addEventListener('click', handleSaveCalendarEvent);
+        if (calendarEventTitle) {
+            calendarEventTitle.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') handleSaveCalendarEvent();
+            });
+        }
+        if (calendarsModal) {
+            calendarsModal.addEventListener('click', (e) => {
+                if (e.target === calendarsModal) closeCalendarsModal();
+            });
+        }
+
         // Check if user is authenticated (will load events from API if so)
         await checkAuth();
 
@@ -2809,6 +3196,9 @@
                 }
                 if (friendsModal && friendsModal.style.display === 'flex') {
                     closeFriendsModal();
+                }
+                if (calendarsModal && calendarsModal.style.display === 'flex') {
+                    closeCalendarsModal();
                 }
             }
             if (e.key === 'Enter' && modal.style.display === 'flex' && !e.shiftKey) {
@@ -3379,6 +3769,19 @@
         if (!annList || !annList[index]) return;
 
         const annotation = annList[index];
+
+        // Birthday and calendar events are not editable inline from the list.
+        if (typeof annotation === 'object' && annotation.isBirthday) {
+            openSettingsModal();
+            return;
+        }
+        if (typeof annotation === 'object' && annotation.isCalendarEvent) {
+            if (!annotation.readOnly) {
+                openCalendarManageView(calendars.find(c => c.id === annotation.calendarId));
+            }
+            return;
+        }
+
         const [startMonth, startDay] = dateKey.split('-').map(Number);
 
         // Set selected date to the event's start date
