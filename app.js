@@ -2057,13 +2057,15 @@
 
         if (!startDateValue) return;
 
-        // Update selectedDate and selectedEndDate from inputs
-        selectedDate = startDateValue;
-        // Always set end date (use end input value if valid and >= start, otherwise use start date)
-        if (endDateValue && compareDates(endDateValue.month, endDateValue.day, startDateValue.month, startDateValue.day) >= 0) {
-            selectedEndDate = endDateValue;
+        // Update selectedDate and selectedEndDate from inputs.
+        // Honor both typed dates: if the end is before the start, swap them so
+        // they form a valid range rather than rejecting the input.
+        if (endDateValue && compareDates(endDateValue.month, endDateValue.day, startDateValue.month, startDateValue.day) < 0) {
+            selectedDate = endDateValue;
+            selectedEndDate = startDateValue;
         } else {
-            selectedEndDate = { month: startDateValue.month, day: startDateValue.day };
+            selectedDate = startDateValue;
+            selectedEndDate = endDateValue || { month: startDateValue.month, day: startDateValue.day };
         }
 
         const text = annotationInput.value.trim();
@@ -2763,32 +2765,16 @@
         document.getElementById('delete-btn').addEventListener('click', deleteCurrentAnnotation);
 
         // Date input event listeners
+        // Just record what's typed — never rewrite the inputs mid-edit, or the
+        // user's keystrokes get reverted. Ordering is normalized in saveAnnotation.
         startDateInput.addEventListener('change', () => {
             const newStart = inputValueToDate(startDateInput.value);
-            if (newStart) {
-                selectedDate = newStart;
-                // If end date is now before start date, set it to start date
-                const endValue = inputValueToDate(endDateInput.value);
-                if (!endValue || compareDates(endValue.month, endValue.day, newStart.month, newStart.day) < 0) {
-                    endDateInput.value = dateToInputValue(newStart.month, newStart.day);
-                    selectedEndDate = { month: newStart.month, day: newStart.day };
-                }
-            }
+            if (newStart) selectedDate = newStart;
         });
 
         endDateInput.addEventListener('change', () => {
             const newEnd = inputValueToDate(endDateInput.value);
-            const startValue = inputValueToDate(startDateInput.value);
-            if (newEnd && startValue) {
-                // Ensure end date is >= start date
-                if (compareDates(newEnd.month, newEnd.day, startValue.month, startValue.day) >= 0) {
-                    selectedEndDate = newEnd;
-                } else {
-                    // End date is before start, set it to start date
-                    endDateInput.value = dateToInputValue(startValue.month, startValue.day);
-                    selectedEndDate = { month: startValue.month, day: startValue.day };
-                }
-            }
+            if (newEnd) selectedEndDate = newEnd;
         });
 
         // Color picker event listeners
