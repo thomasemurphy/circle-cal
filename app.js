@@ -119,6 +119,16 @@
     let managingColor = null;           // selected color in manage view
     let editingCalendarEventId = null;  // id of calendar event being edited (else null = add)
 
+    // "My Calendar" is a virtual entry in the calendars list that toggles
+    // visibility of the user's personal events (and their injected birthdays).
+    // Persisted in localStorage so the choice survives reloads.
+    const MY_CALENDAR_KEY = 'myCalendarVisible';
+    const MY_CALENDAR_COLOR = DEFAULT_COLOR; // matches the personal default
+    let myCalendarVisible = (() => {
+        const v = localStorage.getItem(MY_CALENDAR_KEY);
+        return v === null ? true : v === 'true';
+    })();
+
     // API helper
     async function api(endpoint, options = {}) {
         const response = await fetch(`${API_URL}${endpoint}`, {
@@ -531,26 +541,30 @@
             events = await api('/api/events');
             friends = await fetchFriends(); // Also fetch friends for birthday display
 
-            // Convert events to annotations format
+            // Convert events to annotations format. Only include personal
+            // events (and own/friends' birthdays) if "My Calendar" is on;
+            // otherwise the user just sees their shared-calendar events.
             annotations = {};
-            events.forEach(event => {
-                const key = `${event.month}-${event.day}`;
-                if (!annotations[key]) annotations[key] = [];
-                const annotation = {
-                    id: event.id,
-                    title: event.title,
-                    color: event.color || DEFAULT_COLOR,
-                    hidden: event.hidden || false,
-                };
-                // Add end date for multi-day events
-                if (event.end_month && event.end_day) {
-                    annotation.endMonth = event.end_month - 1; // Convert to 0-indexed
-                    annotation.endDay = event.end_day;
-                }
-                annotations[key].push(annotation);
-            });
-            // Inject birthday events (own and friends)
-            injectBirthdayEvent();
+            if (myCalendarVisible) {
+                events.forEach(event => {
+                    const key = `${event.month}-${event.day}`;
+                    if (!annotations[key]) annotations[key] = [];
+                    const annotation = {
+                        id: event.id,
+                        title: event.title,
+                        color: event.color || DEFAULT_COLOR,
+                        hidden: event.hidden || false,
+                    };
+                    // Add end date for multi-day events
+                    if (event.end_month && event.end_day) {
+                        annotation.endMonth = event.end_month - 1; // Convert to 0-indexed
+                        annotation.endDay = event.end_day;
+                    }
+                    annotations[key].push(annotation);
+                });
+                // Inject birthday events (own and friends) — also personal
+                injectBirthdayEvent();
+            }
             // Merge in events from any calendars the user has toggled on
             await loadCalendarEventsIntoAnnotations();
             updateAnnotationMarkers();
@@ -635,13 +649,19 @@
     }
 
     function renderCalendarsList() {
-        if (!calendars.length) {
-            calendarsListEl.innerHTML = '';
-            calendarsEmptyEl.style.display = 'block';
-            return;
-        }
+        // Always show the "My Calendar" row first; shared calendars (if any) follow.
+        // The empty-state hint is no longer needed since My Calendar is always present.
         calendarsEmptyEl.style.display = 'none';
-        calendarsListEl.innerHTML = calendars.map(cal => `
+        const myRow = `
+            <li class="calendar-row">
+                <label class="calendar-toggle">
+                    <input type="checkbox" data-my-calendar ${myCalendarVisible ? 'checked' : ''}>
+                    <span class="calendar-swatch" style="background:${escapeHtml(MY_CALENDAR_COLOR)}"></span>
+                    <span class="calendar-name">My Calendar</span>
+                </label>
+            </li>
+        `;
+        const sharedRows = calendars.map(cal => `
             <li class="calendar-row">
                 <label class="calendar-toggle">
                     <input type="checkbox" data-id="${cal.id}" ${cal.is_visible ? 'checked' : ''}>
@@ -651,13 +671,23 @@
                 ${cal.is_admin ? `<button class="link-btn manage-cal-btn" data-id="${cal.id}">Manage</button>` : ''}
             </li>
         `).join('');
+        calendarsListEl.innerHTML = myRow + sharedRows;
 
-        calendarsListEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        const myCb = calendarsListEl.querySelector('input[data-my-calendar]');
+        if (myCb) myCb.addEventListener('change', () => handleToggleMyCalendar(myCb.checked));
+
+        calendarsListEl.querySelectorAll('input[data-id]').forEach(cb => {
             cb.addEventListener('change', () => handleToggleCalendar(cb.dataset.id, cb.checked));
         });
         calendarsListEl.querySelectorAll('.manage-cal-btn').forEach(btn => {
             btn.addEventListener('click', () => openCalendarManageView(calendars.find(c => c.id === btn.dataset.id)));
         });
+    }
+
+    async function handleToggleMyCalendar(isVisible) {
+        myCalendarVisible = isVisible;
+        localStorage.setItem(MY_CALENDAR_KEY, String(isVisible));
+        await loadEventsFromAPI(); // rebuild annotations with/without personal events
     }
 
     async function handleToggleCalendar(calId, isVisible) {
