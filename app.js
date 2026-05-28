@@ -3179,6 +3179,26 @@
         });
     }
 
+    // Anchor for zoom-in: if the cursor is inside the empty inner area, pull
+    // it partway toward the event ring at the same angle so successive zoom
+    // steps converge on the "meat" of the calendar. We blend by a fraction
+    // per step (not a full snap) so the pan is spread across wheel events
+    // and doesn't feel like a sudden jump. Points on/outside the ring are
+    // returned unchanged.
+    const RING_PROJECTION_PER_STEP = 0.35;
+    function projectToRingIfInside(x, y) {
+        const dist = Math.sqrt(x * x + y * y);
+        if (dist >= INNER_RADIUS) return { x, y };
+        const ringRadius = (INNER_RADIUS + OUTER_RADIUS) / 2;
+        if (dist < 1) {
+            // Cursor essentially at center; gentle step toward Jan (top).
+            return { x: 0, y: -RING_PROJECTION_PER_STEP * ringRadius };
+        }
+        const newRadius = dist + RING_PROJECTION_PER_STEP * (ringRadius - dist);
+        const k = newRadius / dist;
+        return { x: x * k, y: y * k };
+    }
+
     function handleWheel(e) {
         e.preventDefault();
 
@@ -3195,15 +3215,20 @@
 
         if (newZoom === currentZoom) return;
 
+        // Only project toward the ring when zooming IN — on zoom-out, anchor
+        // to cursor as before (otherwise the view pans away from the cursor).
+        const anchor = newZoom > currentZoom
+            ? projectToRingIfInside(svgP.x, svgP.y)
+            : { x: svgP.x, y: svgP.y };
+
         const vb = getViewBox();
         const newSize = 700 / newZoom;
 
-        // Zoom centered on cursor position
         const cursorRatioX = (svgP.x - vb.x) / vb.w;
         const cursorRatioY = (svgP.y - vb.y) / vb.h;
 
-        const newX = svgP.x - cursorRatioX * newSize;
-        const newY = svgP.y - cursorRatioY * newSize;
+        const newX = anchor.x - cursorRatioX * newSize;
+        const newY = anchor.y - cursorRatioY * newSize;
 
         setViewBox(newX, newY, newSize, newSize);
     }
@@ -3300,15 +3325,19 @@
                 pt.y = currentCenter.y;
                 const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
 
+                // Only project toward the ring when pinching IN.
+                const anchor = newZoom > currentZoom
+                    ? projectToRingIfInside(svgP.x, svgP.y)
+                    : { x: svgP.x, y: svgP.y };
+
                 const vb = getViewBox();
                 const newSize = 700 / newZoom;
 
-                // Zoom centered on pinch center
                 const cursorRatioX = (svgP.x - vb.x) / vb.w;
                 const cursorRatioY = (svgP.y - vb.y) / vb.h;
 
-                const newX = svgP.x - cursorRatioX * newSize;
-                const newY = svgP.y - cursorRatioY * newSize;
+                const newX = anchor.x - cursorRatioX * newSize;
+                const newY = anchor.y - cursorRatioY * newSize;
 
                 setViewBox(newX, newY, newSize, newSize);
             }
