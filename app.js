@@ -1381,9 +1381,11 @@
     }
 
     function calculateVisibleLabels(labelDataArray, collisionGroups) {
-        // Determine how many labels to show per group based on zoom
-        // At zoom 1: show 1, at zoom 15: show 4
-        const labelsPerGroup = Math.min(4, Math.max(1, Math.floor(1 + (currentZoom - 1) * 3 / 14)));
+        // Determine how many labels to show per collision group based on
+        // zoom. Ramps up faster than before so a moderate zoom (e.g. into
+        // June) shows several labels per cluster instead of just one.
+        //   zoom 1 → 1, zoom 2 → 2, zoom 3 → 3, zoom 5 → 4, zoom 7+ → 5–6
+        const labelsPerGroup = Math.min(6, Math.max(1, Math.round(0.5 + currentZoom * 0.7)));
 
         // First, mark all labels as hidden
         labelDataArray.forEach(label => {
@@ -1531,7 +1533,10 @@
 
                 pathsGroup.appendChild(path);
 
-                // Add day of week and day number labels
+                // Add day of week and day number labels.
+                // Position is set dynamically in updateDynamicFontSizes — we
+                // store midAngle + dow on the element so the zoom handler can
+                // re-place them as the font size grows/shrinks.
                 const midAngle = (startAngle + endAngle) / 2;
                 const dayOfWeekRadius = (INNER_RADIUS + OUTER_RADIUS) / 2 + 2;
                 const dayNumberRadius = (INNER_RADIUS + OUTER_RADIUS) / 2 - 2;
@@ -1545,6 +1550,9 @@
                 dowText.setAttribute('class', 'day-of-week');
                 dowText.setAttribute('text-anchor', 'middle');
                 dowText.setAttribute('dominant-baseline', 'middle');
+                dowText.setAttribute('data-dow', dayOfWeek);
+                dowText.setAttribute('data-doy', dayOfYear);
+                dowText.setAttribute('data-mid-angle', midAngle);
                 dowText.textContent = DOW_ABBREV[dayOfWeek];
                 labelsGroup.appendChild(dowText);
 
@@ -1556,6 +1564,9 @@
                 text.setAttribute('class', 'day-number');
                 text.setAttribute('text-anchor', 'middle');
                 text.setAttribute('dominant-baseline', 'middle');
+                text.setAttribute('data-dow', dayOfWeek);
+                text.setAttribute('data-doy', dayOfYear);
+                text.setAttribute('data-mid-angle', midAngle);
                 text.textContent = day;
 
                 labelsGroup.appendChild(text);
@@ -1591,14 +1602,19 @@
             text.setAttribute('class', 'month-label');
             text.setAttribute('text-anchor', 'middle');
             text.setAttribute('dominant-baseline', 'middle');
+            // Store the month-center angle + the extra-flip flag so
+            // updateMonthLabelPositions can re-place the label as the
+            // viewBox changes (zooming in pulls labels inside the ring).
+            text.setAttribute('data-angle', angle);
+            const extraFlip = ((month >= 4 && month <= 5) || (month >= 9 && month <= 11)) ? 1 : 0;
+            text.setAttribute('data-extra-flip', extraFlip);
 
             // Rotate text to follow the circle
             let rotation = angle + 90;
             if (angle > 90 || angle < -90) {
                 rotation += 180;
             }
-            // Flip May, Jun (months 4, 5) and Oct, Nov, Dec (months 9, 10, 11)
-            if ((month >= 4 && month <= 5) || (month >= 9 && month <= 11)) {
+            if (extraFlip) {
                 rotation += 180;
             }
             text.setAttribute('transform', `rotate(${rotation}, ${pos.x}, ${pos.y})`);
@@ -1647,26 +1663,44 @@
         const group = document.createElementNS(SVG_NS, 'g');
         group.setAttribute('class', 'clock-hand-group');
 
-        // Clock hand as a tapered polygon (arrow shape)
-        const tipPos = polarToCartesian(angle, OUTER_RADIUS - 5);
-        const basePos = polarToCartesian(angle, 20);
+        // Today-slice tint — drawn as an arc overlay so it sits on top of
+        // any event subsegments and remains visible when today has events.
+        // Pointer-events disabled so clicks still hit the underlying tile.
+        //
+        // Important: `dayOfYear` from getDayOfYear() is fractional (it
+        // advances through the day with the clock hand), AND offset by one
+        // vs the integer day-of-year used by createDaySegments. Compute the
+        // tile's exact integer day-of-year so the overlay sits perfectly
+        // on a single tile instead of straddling two.
+        const todayDoy = getDayOfYearFromMonthDay(
+            today.getMonth(), today.getDate(), today.getFullYear()
+        );
+        const startAngle = dateToAngle(todayDoy - 1, totalDays);
+        const endAngle = dateToAngle(todayDoy, totalDays);
+        const todayOverlay = document.createElementNS(SVG_NS, 'path');
+        todayOverlay.setAttribute('d', createArcPath(startAngle, endAngle, INNER_RADIUS, OUTER_RADIUS));
+        todayOverlay.setAttribute('class', 'today-overlay');
+        group.appendChild(todayOverlay);
 
-        // Calculate perpendicular offset for the base width
-        const perpAngle = angle + 90;
-        const baseWidth = 2;
+        // Thin line from the hub out to the inner edge of today's day
+        // slice — stops at INNER_RADIUS so the highlighted slice itself
+        // serves as the visible tip.
+        const tipPos = polarToCartesian(angle, INNER_RADIUS);
+        const line = document.createElementNS(SVG_NS, 'line');
+        line.setAttribute('x1', 0);
+        line.setAttribute('y1', 0);
+        line.setAttribute('x2', tipPos.x);
+        line.setAttribute('y2', tipPos.y);
+        line.setAttribute('class', 'clock-hand-line');
+        group.appendChild(line);
 
-        const baseLeft = polarToCartesian(perpAngle, baseWidth);
-        const baseRight = polarToCartesian(perpAngle, -baseWidth);
-
-        const hand = document.createElementNS(SVG_NS, 'polygon');
-        hand.setAttribute('points', `
-            ${basePos.x + baseLeft.x},${basePos.y + baseLeft.y}
-            ${tipPos.x},${tipPos.y}
-            ${basePos.x + baseRight.x},${basePos.y + baseRight.y}
-        `);
-        hand.setAttribute('class', 'clock-hand');
-
-        group.appendChild(hand);
+        // Small hub at center as a deliberate pivot point.
+        const hub = document.createElementNS(SVG_NS, 'circle');
+        hub.setAttribute('cx', 0);
+        hub.setAttribute('cy', 0);
+        hub.setAttribute('r', 1.2);
+        hub.setAttribute('class', 'clock-hand-hub');
+        group.appendChild(hub);
 
         return group;
     }
@@ -2126,48 +2160,48 @@
         const group = document.getElementById('center-text-group');
         if (!group) return;
 
-        const vb = getViewBox();
-
-        // Check if origin (0, 0) is within the viewport
-        const originVisible = (
-            0 >= vb.x && 0 <= vb.x + vb.w &&
-            0 >= vb.y && 0 <= vb.y + vb.h
-        );
-
         const dateText = group.querySelector('.center-date');
         const timeText = group.querySelector('.center-time');
-        const baseTextSize = 14;
-        const scaledTextSize = baseTextSize / currentZoom;
+        // Text grows on-screen as the user zooms in (capped) so the
+        // hand's label feels weightier at high zoom without overflowing
+        // the slice at low zoom. Divided by currentZoom because the value
+        // we ultimately set is in viewBox units.
+        const textScreenPx = Math.min(18, 9 + Math.max(0, currentZoom - 1) * 1.0);
+        const scaledTextSize = textScreenPx / currentZoom;
 
-        let posX, posY;
-        if (originVisible) {
-            // Keep at original center position
-            posX = 0;
-            posY = 0;
+        // Always pin the date/time block to the tip of the clock hand
+        // line — it reads as the hand's label and rotates with it. The
+        // text runs parallel to the hand, with a 180° flip on the left
+        // half so it stays right-side-up.
+        const today = new Date();
+        const totalDays = getDaysInYear(today.getFullYear());
+        const angle = dateToAngle(getDayOfYear(today), totalDays);
+        // Pulled well inside the ring so the rotated text — which extends
+        // ±half its width along the hand direction — doesn't brush the
+        // inner edge of the day tiles.
+        const labelRadius = INNER_RADIUS - 35;
+        const labelPos = polarToCartesian(angle, labelRadius);
+        const posX = labelPos.x;
+        const posY = labelPos.y;
+        let rotation = angle;
+        if (angle > 90 || angle < -90) rotation += 180;
 
-            // Center-aligned when in the middle
-            if (dateText) dateText.setAttribute('text-anchor', 'middle');
-            if (timeText) timeText.setAttribute('text-anchor', 'middle');
+        // Center-aligned, stacked across the hand line — date on one side,
+        // time on the other, both reading along the hand.
+        if (dateText) dateText.setAttribute('text-anchor', 'middle');
+        if (timeText) timeText.setAttribute('text-anchor', 'middle');
 
-            const yOffset = 8 / currentZoom;
-            if (dateText) dateText.setAttribute('y', -yOffset);
-            if (timeText) timeText.setAttribute('y', yOffset);
-        } else {
-            // Move to upper-left corner of viewport
-            const padding = 10 / currentZoom;
-            posX = vb.x + padding;
-            posY = vb.y + padding;
+        // Perpendicular spacing from the hand line, also growing with zoom
+        // so date/time pull apart from the hand at higher zoom.
+        const offsetScreenPx = Math.min(22, 5 + Math.max(0, currentZoom - 1) * 1.4);
+        const yOffset = offsetScreenPx / currentZoom;
+        if (dateText) dateText.setAttribute('y', -yOffset);
+        if (timeText) timeText.setAttribute('y', yOffset);
 
-            // Left-aligned when pinned to top-left
-            if (dateText) dateText.setAttribute('text-anchor', 'start');
-            if (timeText) timeText.setAttribute('text-anchor', 'start');
-
-            const lineHeight = scaledTextSize * 1.4;
-            if (dateText) dateText.setAttribute('y', lineHeight);
-            if (timeText) timeText.setAttribute('y', lineHeight * 2);
-        }
-
-        group.setAttribute('transform', `translate(${posX}, ${posY})`);
+        const transform = rotation
+            ? `translate(${posX}, ${posY}) rotate(${rotation})`
+            : `translate(${posX}, ${posY})`;
+        group.setAttribute('transform', transform);
 
         if (dateText) dateText.style.fontSize = scaledTextSize + 'px';
         if (timeText) timeText.style.fontSize = scaledTextSize + 'px';
@@ -3155,13 +3189,68 @@
     }
 
     function updateDynamicFontSizes() {
-        // Day numbers and day of week: same size, scale up with zoom
-        const dayLabelSize = 0.6 * Math.sqrt(currentZoom);
+        // Day labels: pick a stride (how many days between visible labels)
+        // and a font size such that each shown label roughly fills its stride
+        // of arc, while staying within a comfortable on-screen pixel range.
+        // Zoomed all the way out we end up with one label per week, big and
+        // readable; zooming in subdivides to 2/week, 4/week, then every day.
+        const MID_RADIUS = (INNER_RADIUS + OUTER_RADIUS) / 2;
+        const arcUnitsPerDay = (2 * Math.PI * MID_RADIUS) / 365;
+        const dayArcScreenPx = arcUnitsPerDay * currentZoom;
+
+        let stride;
+        if (dayArcScreenPx >= 11) stride = 1;
+        else if (dayArcScreenPx >= 7) stride = 2;
+        else if (dayArcScreenPx >= 4.5) stride = 4;
+        else if (dayArcScreenPx >= 3) stride = 7;
+        else stride = 14;
+
+        // Available arc per shown label, in screen px; clamp the rendered
+        // font to a small, readable [5, 9] screen-pixel band.
+        const arcAvailableScreen = stride * dayArcScreenPx * 0.85;
+        const fontScreenPx = Math.min(9, Math.max(5, arcAvailableScreen));
+        const fontSize = fontScreenPx / currentZoom; // in viewBox units
+        const radialOffset = fontSize * 0.55; // stack number above / DoW below
+
+        // Which days to show, given the stride. We anchor to Saturday so the
+        // sparse tiers stay aligned to a weekly cadence — Saturdays at
+        // stride 7, Sat+Tue at stride 4, every other day at stride 2, and
+        // every-other Saturday (biweekly) at stride 14.
+        function showsAtStride(dow, doy, s) {
+            if (s <= 1) return true;
+            if (s <= 2) return dow % 2 === 0;
+            if (s <= 4) return dow === 6 || dow === 2;
+            if (s <= 7) return dow === 6;
+            // Biweekly: anchor on Saturdays, then keep every other one.
+            // doy is 1-based; (doy - dow - 1) lands on the prior Sunday's
+            // doy, so dividing by 7 gives a stable week index for parity.
+            return dow === 6 && Math.floor((doy - dow - 1) / 7) % 2 === 0;
+        }
+
+        const fontSizePx = fontSize + 'px';
         document.querySelectorAll('.day-number').forEach(el => {
-            el.style.fontSize = dayLabelSize + 'px';
+            const dow = +el.getAttribute('data-dow');
+            const doy = +el.getAttribute('data-doy');
+            const visible = showsAtStride(dow, doy, stride);
+            el.style.opacity = visible ? '1' : '0';
+            if (!visible) return;
+            el.style.fontSize = fontSizePx;
+            const midAngle = parseFloat(el.getAttribute('data-mid-angle'));
+            const pos = polarToCartesian(midAngle, MID_RADIUS - radialOffset);
+            el.setAttribute('x', pos.x);
+            el.setAttribute('y', pos.y);
         });
         document.querySelectorAll('.day-of-week').forEach(el => {
-            el.style.fontSize = dayLabelSize + 'px';
+            const dow = +el.getAttribute('data-dow');
+            const doy = +el.getAttribute('data-doy');
+            const visible = showsAtStride(dow, doy, stride);
+            el.style.opacity = visible ? '1' : '0';
+            if (!visible) return;
+            el.style.fontSize = fontSizePx;
+            const midAngle = parseFloat(el.getAttribute('data-mid-angle'));
+            const pos = polarToCartesian(midAngle, MID_RADIUS + radialOffset);
+            el.setAttribute('x', pos.x);
+            el.setAttribute('y', pos.y);
         });
 
         // Annotation text: scale down with zoom to maintain roughly constant screen size
@@ -3171,11 +3260,123 @@
             el.style.fontSize = annotationSize + 'px';
         });
 
-        // Month labels: scale down with zoom to maintain roughly constant screen size
-        // Base 10px at zoom 1
-        const monthLabelSize = 10 / Math.sqrt(currentZoom);
-        document.querySelectorAll('.month-label').forEach(el => {
-            el.style.fontSize = monthLabelSize + 'px';
+        // Month labels: position + size handled together so the label can
+        // migrate from outside-the-ring (default) to inside-the-ring when
+        // the user zooms in and the outer position falls off-screen.
+        updateMonthLabels();
+    }
+
+    // Place each month label along its mid-month angle ray, choosing a
+    // radius that keeps the label inside the current viewBox. Default is
+    // just outside the outer ring; on close zooms we fall back to the
+    // center hole on the opposite side of the visible arc.
+    function updateMonthLabels() {
+        const vb = getViewBox();
+        const labels = document.querySelectorAll('.month-label');
+        if (!labels.length) return;
+
+        // Screen-px-based size: grows mildly with zoom, but capped so the
+        // label can't outgrow the available radial slot when zoomed in.
+        const desiredScreenPx = Math.min(22, 10 + 2 * Math.log2(Math.max(1, currentZoom)));
+        const fontSize = desiredScreenPx / currentZoom;
+        const margin = fontSize * 0.7; // approx half text height plus padding
+
+        const MID_RADIUS = (INNER_RADIUS + OUTER_RADIUS) / 2;
+
+        labels.forEach(el => {
+            const angle = parseFloat(el.getAttribute('data-angle'));
+            if (isNaN(angle)) return;
+            const extraFlip = +el.getAttribute('data-extra-flip') === 1;
+
+            // Hide labels whose month arc isn't actually on-screen. We check
+            // the midpoint of the month's arc on the ring — if that's not in
+            // the viewBox, less than half the month is visible and the label
+            // would just be a confusing ghost on the opposite side.
+            const ringMid = polarToCartesian(angle, MID_RADIUS);
+            if (!isPointInViewBox(ringMid.x, ringMid.y, vb)) {
+                el.style.opacity = '0';
+                return;
+            }
+
+            const rad = (angle * Math.PI) / 180;
+            const dx = Math.cos(rad);
+            const dy = Math.sin(rad);
+
+            // Find [tMin, tMax] along the ray (t*dx, t*dy) from origin that
+            // lies inside the viewBox. tMin can go negative (ray crosses
+            // origin into viewBox from the opposite side).
+            let tMin = -Infinity, tMax = Infinity;
+            if (Math.abs(dx) > 1e-9) {
+                const t1 = vb.x / dx;
+                const t2 = (vb.x + vb.w) / dx;
+                tMin = Math.max(tMin, Math.min(t1, t2));
+                tMax = Math.min(tMax, Math.max(t1, t2));
+            } else if (0 < vb.x || 0 > vb.x + vb.w) {
+                tMin = 1; tMax = 0; // ray misses viewBox
+            }
+            if (Math.abs(dy) > 1e-9) {
+                const t1 = vb.y / dy;
+                const t2 = (vb.y + vb.h) / dy;
+                tMin = Math.max(tMin, Math.min(t1, t2));
+                tMax = Math.min(tMax, Math.max(t1, t2));
+            } else if (0 < vb.y || 0 > vb.y + vb.h) {
+                tMin = 1; tMax = 0;
+            }
+
+            const defaultRadius = OUTER_RADIUS + 20;
+
+            // Find the best radius along the ray, in priority order:
+            //   1. Outside the ring, same side (preferring defaultRadius)
+            //   2. Inside the ring / through the center hole
+            //   3. Outside the ring on the opposite side
+            // If none of those slots intersect the viewBox we hide the label.
+            let radius = null;
+            let flipped = false;
+            if (tMin <= tMax) {
+                // Slot 1: t in [OUTER_RADIUS + margin, ∞)
+                const s1Lo = Math.max(tMin, OUTER_RADIUS + margin);
+                const s1Hi = tMax;
+                if (s1Lo <= s1Hi) {
+                    radius = Math.min(s1Hi, Math.max(s1Lo, defaultRadius));
+                } else {
+                    // Slot 2: t in (-INNER_RADIUS + margin, INNER_RADIUS - margin)
+                    const s2Lo = Math.max(tMin, -INNER_RADIUS + margin);
+                    const s2Hi = Math.min(tMax, INNER_RADIUS - margin);
+                    if (s2Lo <= s2Hi) {
+                        // Prefer the spot closest to the ring on the visible
+                        // side — i.e. the largest t in the slot.
+                        radius = s2Hi;
+                        flipped = radius < 0;
+                    } else {
+                        // Slot 3: t in (-∞, -OUTER_RADIUS - margin]
+                        const s3Hi = Math.min(tMax, -OUTER_RADIUS - margin);
+                        if (tMin <= s3Hi) {
+                            radius = s3Hi;
+                            flipped = true;
+                        }
+                    }
+                }
+            }
+
+            if (radius === null) {
+                el.style.opacity = '0';
+                return;
+            }
+            el.style.opacity = '1';
+
+            const pos = polarToCartesian(angle, radius);
+            el.setAttribute('x', pos.x);
+            el.setAttribute('y', pos.y);
+            el.style.fontSize = fontSize + 'px';
+
+            // Rotation: tangent to the circle, then flip on the bottom half
+            // so text stays right-side-up. `flipped` (negative radius, label
+            // crosses the origin) needs another 180° to read correctly.
+            let rotation = angle + 90;
+            if (angle > 90 || angle < -90) rotation += 180;
+            if (extraFlip) rotation += 180;
+            if (flipped) rotation += 180;
+            el.setAttribute('transform', `rotate(${rotation}, ${pos.x}, ${pos.y})`);
         });
     }
 
@@ -3201,6 +3402,7 @@
 
     function handleWheel(e) {
         e.preventDefault();
+        cancelViewAnimation();
 
         // Get cursor position in SVG coordinates before zoom
         const pt = svg.createSVGPoint();
@@ -3239,6 +3441,8 @@
 
         // Don't pan when clicking on day segments (for range selection)
         if (e.target.classList.contains('day-segment')) return;
+
+        cancelViewAnimation();
 
         isPanning = true;
         panStart = { x: e.clientX, y: e.clientY };
@@ -3289,6 +3493,7 @@
     }
 
     function handleTouchStart(e) {
+        cancelViewAnimation();
         if (e.touches.length === 2) {
             // Pinch zoom start
             e.preventDefault();
@@ -3376,6 +3581,83 @@
         setViewBox(-defaultSize / 2, -defaultSize / 2 + yOffset, defaultSize, defaultSize);
     }
 
+    // Named viewBox presets the camera can fly to. Used both by the intro
+    // animation on load and by the circle-button toggle.
+    function getFullViewVb() {
+        const defaultZoom = 1.4;
+        const defaultSize = 700 / defaultZoom;
+        const yOffset = defaultSize * 0.05;
+        return {
+            x: -defaultSize / 2,
+            y: -defaultSize / 2 + yOffset,
+            w: defaultSize,
+            h: defaultSize,
+        };
+    }
+    function getNowViewVb() {
+        const today = new Date();
+        const totalDays = getDaysInYear(today.getFullYear());
+        const doy = getDayOfYear(today);
+        // 4-week window: 1 week back + 3 weeks forward, midpoint at doy + 7.
+        const midAngle = dateToAngle(doy + 7, totalDays);
+        const midRadius = (INNER_RADIUS + OUTER_RADIUS) / 2;
+        const center = polarToCartesian(midAngle, midRadius);
+        const targetSize = 170;
+        return {
+            x: center.x - targetSize / 2,
+            y: center.y - targetSize / 2,
+            w: targetSize,
+            h: targetSize,
+        };
+    }
+
+    // Generic viewBox animator. Cancels any in-flight animation, holds the
+    // current frame for `holdMs`, then interpolates (x, y, w, h) over
+    // `durationMs` using easeInOutCubic so transitions glide rather than
+    // snap. User input (wheel/drag/pinch) calls cancelViewAnimation() to
+    // hand control back immediately.
+    let viewAnimationId = null;
+    function cancelViewAnimation() {
+        if (viewAnimationId !== null) {
+            cancelAnimationFrame(viewAnimationId);
+            viewAnimationId = null;
+        }
+    }
+    function animateToViewBox(targetVb, { holdMs = 0, durationMs = 1100 } = {}) {
+        cancelViewAnimation();
+        const fromVb = getViewBox();
+        const ease = t => (t < 0.5)
+            ? 4 * t * t * t
+            : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        let startTime = null;
+        function step(now) {
+            if (startTime === null) startTime = now;
+            const elapsed = now - startTime;
+            if (elapsed < holdMs) {
+                viewAnimationId = requestAnimationFrame(step);
+                return;
+            }
+            const t = Math.min(1, (elapsed - holdMs) / durationMs);
+            const e = ease(t);
+            setViewBox(
+                fromVb.x + (targetVb.x - fromVb.x) * e,
+                fromVb.y + (targetVb.y - fromVb.y) * e,
+                fromVb.w + (targetVb.w - fromVb.w) * e,
+                fromVb.h + (targetVb.h - fromVb.h) * e,
+            );
+            if (t < 1) {
+                viewAnimationId = requestAnimationFrame(step);
+            } else {
+                viewAnimationId = null;
+            }
+        }
+        viewAnimationId = requestAnimationFrame(step);
+    }
+
+    function startIntroAnimation() {
+        animateToViewBox(getNowViewVb(), { holdMs: 350, durationMs: 1700 });
+    }
+
     async function init() {
         const year = new Date().getFullYear();
 
@@ -3394,6 +3676,12 @@
 
         // Set initial zoom/position
         resetZoom();
+        // Fly the camera in to the 4-week window around today after a brief
+        // beat at the default view. Skipped on list view (where the SVG is
+        // hidden); cancelled the moment the user interacts.
+        if (currentView === 'circle') {
+            startIntroAnimation();
+        }
 
         // Auth event listeners
         if (loginBtn) loginBtn.addEventListener('click', handleLogin);
@@ -4207,7 +4495,30 @@
         switchView(currentView);
 
         if (circleViewBtn) {
-            circleViewBtn.addEventListener('click', () => switchView('circle'));
+            // Clicking the circle button while already in circle mode
+            // resets the zoom/pan to the default view — handy for getting
+            // back to "the whole year" without scrolling out manually.
+            circleViewBtn.addEventListener('click', () => {
+                if (currentView !== 'circle') {
+                    cancelViewAnimation();
+                    switchView('circle');
+                    return;
+                }
+                // In circle mode: toggle between the full-year frame and
+                // the 4-week now-window with the smooth fly-to animation.
+                // After arbitrary panning/zooming the current view may sit
+                // between the two presets — pick whichever is *further*
+                // from the current viewBox width, so the click always
+                // produces meaningful motion in the same direction as a
+                // toggle.
+                const fullVb = getFullViewVb();
+                const nowVb = getNowViewVb();
+                const currentVb = getViewBox();
+                const distToFull = Math.abs(currentVb.w - fullVb.w);
+                const distToNow = Math.abs(currentVb.w - nowVb.w);
+                const target = distToFull > distToNow ? fullVb : nowVb;
+                animateToViewBox(target, { durationMs: 1100 });
+            });
         }
         if (listViewBtn) {
             listViewBtn.addEventListener('click', () => switchView('list'));

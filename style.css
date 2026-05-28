@@ -217,6 +217,7 @@ body {
     fill: var(--range-selected-weekend);
 }
 
+
 .day-segment.has-event:hover,
 .day-segment.has-event.hovered,
 .day-segment.has-event.linked-hover {
@@ -249,13 +250,30 @@ body {
     font-weight: 500;
     fill: var(--text-secondary);
     letter-spacing: 0.3px;
-    transition: font-size 0.1s ease;
+    transition: font-size 0.1s ease, opacity 0.15s ease;
 }
 
 /* Clock hand */
-.clock-hand {
-    fill: rgba(229, 57, 53, 0.6);
+/* Clock hand: thin line from hub to today's slice, plus a small pivot dot */
+.clock-hand-line {
+    stroke: rgba(46, 160, 67, 0.9);
+    stroke-width: 0.25;
+    stroke-linecap: round;
+    fill: none;
+}
+
+.clock-hand-hub {
+    fill: rgb(46, 160, 67);
     stroke: none;
+}
+
+/* Today's slice overlay — painted on top of event subsegments so the
+   highlight survives when today has events. pointer-events: none keeps
+   the underlying tile clickable. */
+.today-overlay {
+    fill: rgba(46, 160, 67, 0.22);
+    stroke: none;
+    pointer-events: none;
 }
 
 /* Date/time text in center */
@@ -277,7 +295,7 @@ body {
     font-weight: 500;
     fill: var(--text-muted);
     pointer-events: none;
-    transition: font-size 0.1s ease;
+    transition: font-size 0.1s ease, opacity 0.15s ease;
 }
 
 #calendar.zoomed .day-number {
@@ -290,7 +308,7 @@ body {
     font-weight: 500;
     fill: var(--text-muted);
     pointer-events: none;
-    transition: font-size 0.1s ease;
+    transition: font-size 0.1s ease, opacity 0.15s ease;
 }
 
 #calendar.zoomed .day-of-week {
