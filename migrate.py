@@ -95,6 +95,19 @@ migrations = [
         UNIQUE(user_id, event_id)
     )
     """,
+
+    # Pending calendar memberships — admin invited someone by email before
+    # that email has an account. Converted to a real CalendarMembership
+    # when the email signs in (see api/auth.py).
+    """
+    CREATE TABLE IF NOT EXISTS pending_calendar_memberships (
+        id VARCHAR(36) PRIMARY KEY,
+        calendar_id VARCHAR(36) NOT NULL REFERENCES calendars(id) ON DELETE CASCADE,
+        invited_email VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(calendar_id, invited_email)
+    )
+    """,
 ]
 
 for sql in migrations:

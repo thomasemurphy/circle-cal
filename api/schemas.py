@@ -138,12 +138,19 @@ class CalendarMemberAdd(BaseModel):
 
 
 class CalendarMemberResponse(BaseModel):
-    """A subscriber of a calendar (excludes the admin)."""
+    """A subscriber of a calendar (excludes the admin).
+
+    `status` is "active" for real members and "pending" for invited emails
+    that don't have an account yet. Pending rows have `user_id` set to the
+    string "pending:<email>" so the frontend can identify+revoke them
+    uniformly with active members.
+    """
     user_id: str
     email: str
     name: Optional[str]
     picture_url: Optional[str]
     is_visible: bool
+    status: str = "active"
 
     class Config:
         from_attributes = True

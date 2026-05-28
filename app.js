@@ -875,20 +875,30 @@
             calendarSubscribersList.innerHTML = '<li class="muted-row">No subscribers yet.</li>';
             return;
         }
-        calendarSubscribersList.innerHTML = members.map(m => `
+        // Pending rows come back with status="pending" and user_id of the
+        // form "pending:<email>" — same Remove action revokes them via the
+        // shared DELETE /members/{user_id} endpoint.
+        calendarSubscribersList.innerHTML = members.map(m => {
+            const isPending = m.status === 'pending';
+            const nameLine = isPending
+                ? `<div class="friend-name">${escapeHtml(m.email)} <span class="pending-badge">Pending</span></div>`
+                : `<div class="friend-name">${escapeHtml(m.name || 'Unknown')}</div>
+                   <div class="friend-email">${escapeHtml(m.email)}</div>`;
+            const avatar = !isPending && m.picture_url
+                ? `<img src="${escapeHtml(m.picture_url)}" class="friend-avatar" alt="">`
+                : '';
+            const removeLabel = isPending ? 'Revoke' : 'Remove';
+            return `
             <li>
                 <div class="friend-info">
-                    ${m.picture_url ? `<img src="${escapeHtml(m.picture_url)}" class="friend-avatar" alt="">` : ''}
-                    <div>
-                        <div class="friend-name">${escapeHtml(m.name || 'Unknown')}</div>
-                        <div class="friend-email">${escapeHtml(m.email)}</div>
-                    </div>
+                    ${avatar}
+                    <div>${nameLine}</div>
                 </div>
                 <div class="friend-actions">
-                    <button class="remove-btn" data-uid="${m.user_id}">Remove</button>
+                    <button class="remove-btn" data-uid="${escapeHtml(m.user_id)}">${removeLabel}</button>
                 </div>
-            </li>
-        `).join('');
+            </li>`;
+        }).join('');
         calendarSubscribersList.querySelectorAll('.remove-btn').forEach(btn => {
             btn.addEventListener('click', () => handleRemoveSubscriber(btn.dataset.uid));
         });
@@ -915,7 +925,10 @@
     async function handleRemoveSubscriber(userId) {
         if (!managingCalendar) return;
         try {
-            await api(`/api/calendars/${managingCalendar.id}/members/${userId}`, { method: 'DELETE' });
+            // Pending invites use a synthetic id like "pending:foo@bar.com"
+            // which contains characters that need URL-encoding in the path.
+            const idForPath = encodeURIComponent(userId);
+            await api(`/api/calendars/${managingCalendar.id}/members/${idForPath}`, { method: 'DELETE' });
             loadAndRenderSubscribers();
         } catch (e) {
             console.error('Failed to remove subscriber:', e);

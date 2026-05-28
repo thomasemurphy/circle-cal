@@ -171,3 +171,24 @@ class PendingInvitation(Base):
     __table_args__ = (
         UniqueConstraint('inviter_id', 'invited_email', name='unique_pending_invitation'),
     )
+
+
+class PendingCalendarMembership(Base):
+    """A calendar invitation for an email that doesn't have an account yet.
+
+    Mirrors PendingInvitation (the friend-invite version): an admin can
+    invite someone by email; when that email signs in, api/auth.py's user-
+    create flow converts each pending row into a real CalendarMembership.
+    """
+    __tablename__ = "pending_calendar_memberships"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    calendar_id = Column(String(36), ForeignKey("calendars.id", ondelete="CASCADE"), nullable=False)
+    invited_email = Column(String(255), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+    calendar = relationship("Calendar")
+
+    __table_args__ = (
+        UniqueConstraint('calendar_id', 'invited_email', name='unique_pending_calendar_membership'),
+    )

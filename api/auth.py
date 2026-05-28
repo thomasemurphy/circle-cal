@@ -8,7 +8,13 @@ from jose import jwt, JWTError
 from datetime import datetime, timedelta
 
 from .database import get_db
-from .models import User, PendingInvitation, Friendship
+from .models import (
+    User,
+    PendingInvitation,
+    Friendship,
+    PendingCalendarMembership,
+    CalendarMembership,
+)
 from .schemas import UserResponse
 from .config import get_settings
 
@@ -126,7 +132,26 @@ async def google_callback(request: Request, db: AsyncSession = Depends(get_db)):
             db.add(friendship)
             await db.delete(invitation)
 
-        if pending_invitations:
+        # Convert any pending calendar-membership invites into real
+        # memberships. Each pending row was created by an admin via
+        # POST /api/calendars/{id}/members for an email without an account.
+        pending_cal_result = await db.execute(
+            select(PendingCalendarMembership).where(
+                PendingCalendarMembership.invited_email == email.lower()
+            )
+        )
+        pending_cal_invites = pending_cal_result.scalars().all()
+
+        for invite in pending_cal_invites:
+            membership = CalendarMembership(
+                calendar_id=invite.calendar_id,
+                user_id=user.id,
+                is_visible=False,
+            )
+            db.add(membership)
+            await db.delete(invite)
+
+        if pending_invitations or pending_cal_invites:
             await db.commit()
     else:
         # Update user info

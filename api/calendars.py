@@ -4,7 +4,14 @@ from sqlalchemy import select
 from typing import List
 
 from .database import get_db
-from .models import User, Calendar, CalendarMembership, Event, UserEventColorOverride
+from .models import (
+    User,
+    Calendar,
+    CalendarMembership,
+    PendingCalendarMembership,
+    Event,
+    UserEventColorOverride,
+)
 from .schemas import (
     CalendarResponse,
     CalendarUpdate,
@@ -139,9 +146,13 @@ async def list_members(
     user: User = Depends(require_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Admin: list subscribers (excludes the admin)."""
+    """Admin: list subscribers (excludes the admin), including pending
+    email invites for accounts that don't exist yet. Pending rows are
+    marked with status="pending" and use a synthetic user_id of
+    `pending:<email>` so the frontend can address them uniformly."""
     calendar = await _get_calendar_for_admin(db, calendar_id, user)
-    result = await db.execute(
+
+    active_result = await db.execute(
         select(CalendarMembership, User)
         .join(User, User.id == CalendarMembership.user_id)
         .where(
@@ -150,16 +161,36 @@ async def list_members(
         )
         .order_by(User.name)
     )
-    return [
+    active = [
         CalendarMemberResponse(
             user_id=u.id,
             email=u.email,
             name=u.name,
             picture_url=u.picture_url,
             is_visible=membership.is_visible,
+            status="active",
         )
-        for membership, u in result.all()
+        for membership, u in active_result.all()
     ]
+
+    pending_result = await db.execute(
+        select(PendingCalendarMembership)
+        .where(PendingCalendarMembership.calendar_id == calendar_id)
+        .order_by(PendingCalendarMembership.invited_email)
+    )
+    pending = [
+        CalendarMemberResponse(
+            user_id=f"pending:{p.invited_email}",
+            email=p.invited_email,
+            name=None,
+            picture_url=None,
+            is_visible=False,
+            status="pending",
+        )
+        for p in pending_result.scalars().all()
+    ]
+
+    return active + pending
 
 
 @router.post("/{calendar_id}/members", response_model=CalendarMemberAddResponse, status_code=201)
@@ -169,16 +200,49 @@ async def add_member(
     user: User = Depends(require_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Admin: add a subscriber directly by email (must be an existing user)."""
+    """Admin: add a subscriber by email.
+
+    If the email already has an account → create a real CalendarMembership.
+    If not → stash a PendingCalendarMembership row; the next time that
+    email signs in, api/auth.py will convert it into a real membership.
+    """
     calendar = await _get_calendar_for_admin(db, calendar_id, user)
     email = data.email.lower().strip()
 
     result = await db.execute(select(User).where(User.email == email))
     target = result.scalar_one_or_none()
-    if not target:
-        return CalendarMemberAddResponse(
-            message="No account found with that email. They need to sign in once before you can add them.",
+
+    if target is None:
+        # No account yet → pending invite. Block self-invites (admin's own
+        # email) and de-dupe against any existing pending row.
+        if email == (user.email or "").lower():
+            raise HTTPException(status_code=400, detail="You're already the admin of this calendar")
+        existing_pending = await db.execute(
+            select(PendingCalendarMembership).where(
+                PendingCalendarMembership.calendar_id == calendar_id,
+                PendingCalendarMembership.invited_email == email,
+            )
         )
+        if existing_pending.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="That email already has a pending invite")
+        pending = PendingCalendarMembership(
+            calendar_id=calendar_id,
+            invited_email=email,
+        )
+        db.add(pending)
+        await db.commit()
+        return CalendarMemberAddResponse(
+            message=f"Invited {email} — they'll be added when they sign in",
+            member=CalendarMemberResponse(
+                user_id=f"pending:{email}",
+                email=email,
+                name=None,
+                picture_url=None,
+                is_visible=False,
+                status="pending",
+            ),
+        )
+
     if target.id == calendar.admin_user_id:
         raise HTTPException(status_code=400, detail="You're already the admin of this calendar")
 
@@ -201,6 +265,7 @@ async def add_member(
             name=target.name,
             picture_url=target.picture_url,
             is_visible=False,
+            status="active",
         ),
     )
 
@@ -212,8 +277,30 @@ async def remove_member(
     user: User = Depends(require_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Admin: remove a subscriber."""
+    """Admin: remove a subscriber, or revoke a pending email invite.
+
+    If `member_user_id` starts with `pending:`, it's the synthetic id used
+    by the list/add endpoints for invited emails without accounts; we
+    delete the matching PendingCalendarMembership row. Otherwise it's a
+    real user id and we delete the CalendarMembership row.
+    """
     calendar = await _get_calendar_for_admin(db, calendar_id, user)
+
+    if member_user_id.startswith("pending:"):
+        email = member_user_id[len("pending:"):].lower().strip()
+        result = await db.execute(
+            select(PendingCalendarMembership).where(
+                PendingCalendarMembership.calendar_id == calendar_id,
+                PendingCalendarMembership.invited_email == email,
+            )
+        )
+        pending = result.scalar_one_or_none()
+        if not pending:
+            raise HTTPException(status_code=404, detail="Pending invite not found")
+        await db.delete(pending)
+        await db.commit()
+        return
+
     if member_user_id == calendar.admin_user_id:
         raise HTTPException(status_code=400, detail="Cannot remove the admin")
     membership = await _get_membership(db, calendar_id, member_user_id)
