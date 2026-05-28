@@ -45,6 +45,10 @@
     const modal = document.getElementById('modal');
     const existingAnnotations = document.getElementById('existing-annotations');
     const annotationInput = document.getElementById('annotation-input');
+    const modalCalendarLinkRow = document.getElementById('modal-calendar-link-row');
+    const modalCalendarLink = document.getElementById('modal-calendar-link');
+    // Set when the event modal is showing a shared-calendar event (read-only-ish view).
+    let editingCalendarContext = null;  // { calendarId, eventId, calendar }
 
     // Date input elements
     const startDateInput = document.getElementById('start-date-input');
@@ -58,23 +62,22 @@
     const userAvatar = document.getElementById('user-avatar');
     const userName = document.getElementById('user-name');
 
-    // Settings elements
+    // Settings ("My Birthday") elements — now a popover.
     const settingsBtn = document.getElementById('settings-btn');
-    const settingsModal = document.getElementById('settings-modal');
+    const settingsPopover = document.getElementById('settings-popover');
     const birthdayMonth = document.getElementById('birthday-month');
     const birthdayDay = document.getElementById('birthday-day');
     const clearBirthdayBtn = document.getElementById('clear-birthday-btn');
     const settingsSaveBtn = document.getElementById('settings-save-btn');
-    const settingsCancelBtn = document.getElementById('settings-cancel-btn');
 
     // Birthday event constants
     const BIRTHDAY_COLOR = '#ff69b4'; // Pink
     const BIRTHDAY_TITLE = 'My birthday!';
     const FRIEND_BIRTHDAY_COLOR = '#9c27b0'; // Purple for friend birthdays
 
-    // Friends elements
+    // Friends elements — now a popover.
     const friendsBtn = document.getElementById('friends-btn');
-    const friendsModal = document.getElementById('friends-modal');
+    const friendsPopover = document.getElementById('friends-popover');
     const friendBadge = document.getElementById('friend-badge');
     const friendEmailInput = document.getElementById('friend-email');
     const sendRequestBtn = document.getElementById('send-request-btn');
@@ -83,7 +86,6 @@
     const pendingRequestsList = document.getElementById('pending-requests-list');
     const currentFriendsSection = document.getElementById('current-friends-section');
     const currentFriendsList = document.getElementById('current-friends-list');
-    const friendsCloseBtn = document.getElementById('friends-close-btn');
 
     // Friends state
     let pendingFriendRequests = [];
@@ -93,11 +95,10 @@
 
     // Calendars (shared event collections)
     const calendarsBtn = document.getElementById('calendars-btn');
-    const calendarsModal = document.getElementById('calendars-modal');
-    const calendarsListView = document.getElementById('calendars-list-view');
+    const calendarsPopover = document.getElementById('calendars-popover');
     const calendarsListEl = document.getElementById('calendars-list');
     const calendarsEmptyEl = document.getElementById('calendars-empty');
-    const calendarsCloseBtn = document.getElementById('calendars-close-btn');
+    const calendarManageModal = document.getElementById('calendar-manage-modal');
     const calendarManageView = document.getElementById('calendar-manage-view');
     const calendarManageBack = document.getElementById('calendar-manage-back');
     const calendarManageClose = document.getElementById('calendar-manage-close');
@@ -114,10 +115,20 @@
     const calendarEventStatus = document.getElementById('calendar-event-status');
     const calendarEventsList = document.getElementById('calendar-events-list');
 
-    let calendars = [];                 // [{id,name,color,is_admin,is_visible}]
+    let calendars = [];                 // [{id,name,color,is_admin,is_visible,color_override}]
     let managingCalendar = null;        // calendar object currently in manage view
     let managingColor = null;           // selected color in manage view
     let editingCalendarEventId = null;  // id of calendar event being edited (else null = add)
+
+    // Per-user color customize modal refs
+    const calendarCustomizeModal = document.getElementById('calendar-customize-modal');
+    const customizeTitle = document.getElementById('customize-title');
+    const customizeCalColors = document.getElementById('customize-cal-colors');
+    const customizeCalReset = document.getElementById('customize-cal-reset');
+    const customizeEventsList = document.getElementById('customize-events-list');
+    const customizeCloseBtn = document.getElementById('customize-close-btn');
+    let customizingCalendar = null; // calendar being customized
+    const PALETTE = ['#ff6360', '#ffcc00', '#00c886', '#0ba1ff', '#6224ff'];
 
     // "My Calendar" is a virtual entry in the calendars list that toggles
     // visibility of the user's personal events (and their injected birthdays).
@@ -208,10 +219,8 @@
     }
 
     // Settings modal functions
-    function openSettingsModal() {
+    function populateSettingsPopover() {
         if (!currentUser) return;
-
-        // Populate current birthday values
         if (currentUser.birthday_month) {
             birthdayMonth.value = currentUser.birthday_month;
             birthdayDay.value = currentUser.birthday_day || '';
@@ -219,12 +228,16 @@
             birthdayMonth.value = '';
             birthdayDay.value = '';
         }
+    }
 
-        settingsModal.style.display = 'flex';
+    // Backward-compatible aliases — call sites elsewhere still use these names.
+    function openSettingsModal() {
+        if (!currentUser) return;
+        openPopover('settings');
     }
 
     function closeSettingsModal() {
-        settingsModal.style.display = 'none';
+        closePopover('settings');
     }
 
     async function saveSettings() {
@@ -312,19 +325,21 @@
     }
 
     // Friends modal functions
-    function openFriendsModal() {
+    function populateFriendsPopover() {
         if (!currentUser) return;
-
         friendEmailInput.value = '';
         friendRequestStatus.textContent = '';
         friendRequestStatus.className = 'request-status';
-
         refreshFriendsModal();
-        friendsModal.style.display = 'flex';
+    }
+
+    function openFriendsModal() {
+        if (!currentUser) return;
+        openPopover('friends');
     }
 
     function closeFriendsModal() {
-        friendsModal.style.display = 'none';
+        closePopover('friends');
     }
 
     async function refreshFriendsModal() {
@@ -471,8 +486,8 @@
             pendingFriendRequests = await fetchPendingRequests();
             updateFriendBadge();
 
-            // If modal is open, refresh the list
-            if (friendsModal && friendsModal.style.display === 'flex') {
+            // If popover is open, refresh the list
+            if (isPopoverOpen('friends')) {
                 friends = await fetchFriends();
                 renderPendingRequests();
                 renderFriends();
@@ -593,12 +608,14 @@
                 console.error(`Failed to load events for calendar ${cal.id}:`, e);
                 continue;
             }
+            // Effective color resolution: per-event override > calendar override > admin color
+            const calEffective = cal.color_override || cal.color;
             calEvents.forEach(event => {
                 const key = `${event.month}-${event.day}`;
                 if (!annotations[key]) annotations[key] = [];
                 const annotation = {
                     title: event.title,
-                    color: cal.color,           // one color per calendar
+                    color: event.my_color || calEffective,
                     hidden: false,
                     isCalendarEvent: true,
                     calendarId: cal.id,
@@ -623,27 +640,118 @@
         ));
     }
 
-    function openCalendarsModal() {
-        showCalendarsListView();
-        renderCalendarsList();
-        calendarsModal.style.display = 'flex';
-        // Refresh from server in the background
-        api('/api/calendars').then(list => {
-            calendars = list;
-            if (calendarsModal.style.display === 'flex' &&
-                calendarManageView.style.display === 'none') {
-                renderCalendarsList();
-            }
-        }).catch(() => {});
+    // ---- Generic popover system (calendars, settings, friends) ----
+    //
+    // Each popover anchors under its button with a caret. Hover over the
+    // button opens it; once open it stays put until outside-click, Esc, or
+    // re-clicking the button — so typed input in a popover isn't lost on
+    // mouse-out. Only one popover open at a time.
+    const POPOVERS = [];
+    const HOVER_OPEN_DELAY = 80;
+    const HOVER_CLOSE_DELAY = 220;
+    let hoverOpenTimer = null;
+    let hoverCloseTimer = null;
+
+    function popoverByName(name) {
+        return POPOVERS.find(p => p.name === name);
     }
 
-    function closeCalendarsModal() {
-        calendarsModal.style.display = 'none';
+    function positionPopover(p) {
+        if (!p || !p.btn || !p.el) return;
+        const r = p.btn.getBoundingClientRect();
+        const right = Math.max(8, window.innerWidth - r.right);
+        p.el.style.top = (r.bottom + 10) + 'px';
+        p.el.style.right = right + 'px';
+        p.el.style.left = 'auto';
+        // Caret centered under the button (popover transform-origin is top right).
+        const caretRight = Math.max(8, r.width / 2 - 6);
+        p.el.style.setProperty('--caret-right', caretRight + 'px');
     }
 
-    function showCalendarsListView() {
-        calendarManageView.style.display = 'none';
-        calendarsListView.style.display = 'block';
+    function openPopover(name) {
+        const p = popoverByName(name);
+        if (!p || !p.el) return;
+        // Exclusive — close any other popover.
+        POPOVERS.forEach(o => { if (o.name !== name) o.el.classList.remove('open'); });
+        // Close manage modal if open (manage is a separate, larger surface).
+        if (calendarManageModal && calendarManageModal.style.display === 'flex') {
+            closeCalendarManageModal();
+        }
+        if (p.onOpen) p.onOpen();
+        positionPopover(p);
+        // requestAnimationFrame so the transition runs from the initial scale.
+        requestAnimationFrame(() => p.el.classList.add('open'));
+    }
+
+    function closePopover(name) {
+        const p = popoverByName(name);
+        if (p && p.el) p.el.classList.remove('open');
+        if (p && p.onClose) p.onClose();
+    }
+
+    function closeAllPopovers() {
+        POPOVERS.forEach(p => p.el.classList.remove('open'));
+    }
+
+    function isPopoverOpen(name) {
+        const p = popoverByName(name);
+        return !!(p && p.el && p.el.classList.contains('open'));
+    }
+
+    function isAnyPopoverOpen() {
+        return POPOVERS.some(p => p.el.classList.contains('open'));
+    }
+
+    function togglePopover(name) {
+        if (isPopoverOpen(name)) closePopover(name);
+        else openPopover(name);
+    }
+
+    function registerPopover(p) {
+        POPOVERS.push(p);
+        if (!p.btn || !p.el) return;
+        // Click always opens (never toggles closed) so clicking the button
+        // while the popover is already open via hover doesn't dismiss it.
+        // Close via mouseleave, outside-click, or Escape.
+        p.btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            clearTimeout(hoverOpenTimer);
+            clearTimeout(hoverCloseTimer);
+            openPopover(p.name);
+        });
+        p.btn.addEventListener('mouseenter', () => {
+            clearTimeout(hoverCloseTimer);
+            clearTimeout(hoverOpenTimer);
+            hoverOpenTimer = setTimeout(() => openPopover(p.name), HOVER_OPEN_DELAY);
+        });
+        p.btn.addEventListener('mouseleave', () => {
+            // Cancel a pending open, and close shortly if the cursor doesn't reach the popover.
+            clearTimeout(hoverOpenTimer);
+            clearTimeout(hoverCloseTimer);
+            hoverCloseTimer = setTimeout(() => {
+                if (!p.el.matches(':hover')) closePopover(p.name);
+            }, HOVER_CLOSE_DELAY);
+        });
+        // Once the cursor reaches the popover, cancel any pending close.
+        p.el.addEventListener('mouseenter', () => clearTimeout(hoverCloseTimer));
+        // Cursor leaves the popover → close after a small grace period, unless
+        // the user is actively typing/focused on something inside (e.g. an
+        // open <select> that paints its dropdown outside the popover bounds).
+        p.el.addEventListener('mouseleave', () => {
+            clearTimeout(hoverCloseTimer);
+            hoverCloseTimer = setTimeout(() => {
+                if (p.el.matches(':focus-within')) return;
+                closePopover(p.name);
+            }, HOVER_CLOSE_DELAY);
+        });
+    }
+
+    function openCalendarManageModal() {
+        if (calendarManageModal) calendarManageModal.style.display = 'flex';
+    }
+
+    function closeCalendarManageModal() {
+        if (calendarManageModal) calendarManageModal.style.display = 'none';
         managingCalendar = null;
         editingCalendarEventId = null;
     }
@@ -661,16 +769,20 @@
                 </label>
             </li>
         `;
-        const sharedRows = calendars.map(cal => `
+        const sharedRows = calendars.map(cal => {
+            const effective = cal.color_override || cal.color;
+            return `
             <li class="calendar-row">
                 <label class="calendar-toggle">
                     <input type="checkbox" data-id="${cal.id}" ${cal.is_visible ? 'checked' : ''}>
-                    <span class="calendar-swatch" style="background:${escapeHtml(cal.color)}"></span>
+                    <span class="calendar-swatch" style="background:${escapeHtml(effective)}"></span>
                     <span class="calendar-name">${escapeHtml(cal.name)}</span>
                 </label>
-                ${cal.is_admin ? `<button class="link-btn manage-cal-btn" data-id="${cal.id}">Manage</button>` : ''}
-            </li>
-        `).join('');
+                <div class="calendar-row-actions">
+                    ${cal.is_admin ? `<button class="link-btn manage-cal-btn" data-id="${cal.id}">Manage</button>` : ''}
+                </div>
+            </li>`;
+        }).join('');
         calendarsListEl.innerHTML = myRow + sharedRows;
 
         const myCb = calendarsListEl.querySelector('input[data-my-calendar]');
@@ -715,9 +827,8 @@
         editingCalendarEventId = null;
         managingColor = cal.color;
 
-        calendarsListView.style.display = 'none';
-        calendarManageView.style.display = 'block';
-        if (calendarsModal.style.display !== 'flex') calendarsModal.style.display = 'flex';
+        closePopover('calendars');
+        openCalendarManageModal();
 
         calendarNameInput.value = cal.name;
         calendarColorOptions.querySelectorAll('.color-option').forEach(opt => {
@@ -896,6 +1007,110 @@
             await loadEventsFromAPI();
         } catch (e) {
             console.error('Failed to delete event:', e);
+        }
+    }
+
+    // ---- Per-user color customization (works for any member, admin or not) ----
+
+    function openCustomizeModal(cal) {
+        if (!cal) return;
+        customizingCalendar = cal;
+        customizeTitle.textContent = `Customize: ${cal.name}`;
+        // Mark the currently-selected calendar color (override or default).
+        renderCustomizeCalColors();
+        loadAndRenderCustomizeEvents();
+        // Close the popover behind the modal, open this one.
+        closePopover('calendars');
+        calendarCustomizeModal.style.display = 'flex';
+    }
+
+    function closeCustomizeModal() {
+        calendarCustomizeModal.style.display = 'none';
+        customizingCalendar = null;
+    }
+
+    function renderCustomizeCalColors() {
+        if (!customizingCalendar) return;
+        const current = customizingCalendar.color_override || null;
+        customizeCalColors.querySelectorAll('.color-option').forEach(opt => {
+            opt.classList.toggle('selected', opt.getAttribute('data-color') === current);
+        });
+    }
+
+    async function applyCalendarColorOverride(color) {
+        if (!customizingCalendar) return;
+        try {
+            const updated = await api(`/api/calendars/${customizingCalendar.id}/color`, {
+                method: 'PATCH',
+                body: JSON.stringify({ color }),
+            });
+            // Update local cache + UI.
+            const idx = calendars.findIndex(c => c.id === customizingCalendar.id);
+            if (idx !== -1) calendars[idx] = updated;
+            customizingCalendar = updated;
+            renderCustomizeCalColors();
+            // Per-event swatches show with calendar effective color as the
+            // "background" hint when no per-event override — re-render those too.
+            loadAndRenderCustomizeEvents();
+            await loadEventsFromAPI();
+        } catch (e) {
+            console.error('Failed to set calendar color override:', e);
+        }
+    }
+
+    async function loadAndRenderCustomizeEvents() {
+        if (!customizingCalendar) return;
+        let evs = [];
+        try {
+            evs = await api(`/api/calendars/${customizingCalendar.id}/events`);
+        } catch (e) {
+            console.error('Failed to load events for customize:', e);
+        }
+        if (!evs.length) {
+            customizeEventsList.innerHTML = '<li class="muted-row">No events.</li>';
+            return;
+        }
+        const calEffective = customizingCalendar.color_override || customizingCalendar.color;
+        customizeEventsList.innerHTML = evs.map(ev => {
+            const label = `${MONTHS[ev.month - 1].substring(0, 3)} ${ev.day}`;
+            const swatches = PALETTE.map(c => `
+                <button class="swatch-mini ${ev.my_color === c ? 'selected' : ''}"
+                        data-event-id="${ev.id}" data-color="${c}" style="background:${c}"></button>
+            `).join('');
+            return `
+                <li>
+                    <span class="cal-event-label"><strong>${escapeHtml(label)}</strong> ${escapeHtml(ev.title)}</span>
+                    <span class="swatch-row" title="Currently shown in ${escapeHtml(ev.my_color || calEffective)}">
+                        ${swatches}
+                        <button class="swatch-reset" data-event-id="${ev.id}" title="Reset to calendar color">×</button>
+                    </span>
+                </li>
+            `;
+        }).join('');
+        customizeEventsList.querySelectorAll('.swatch-mini').forEach(btn => {
+            btn.addEventListener('click', () => applyEventColorOverride(btn.dataset.eventId, btn.dataset.color));
+        });
+        customizeEventsList.querySelectorAll('.swatch-reset').forEach(btn => {
+            btn.addEventListener('click', () => applyEventColorOverride(btn.dataset.eventId, null));
+        });
+    }
+
+    async function applyEventColorOverride(eventId, color) {
+        if (!customizingCalendar) return;
+        await setEventColorOverrideAPI(customizingCalendar.id, eventId, color);
+        loadAndRenderCustomizeEvents();
+    }
+
+    // Set or clear a per-user event color override, then refresh the circle.
+    async function setEventColorOverrideAPI(calendarId, eventId, color) {
+        try {
+            await api(`/api/calendars/${calendarId}/events/${eventId}/my-color`, {
+                method: 'PUT',
+                body: JSON.stringify({ color }),
+            });
+            await loadEventsFromAPI();
+        } catch (e) {
+            console.error('Failed to set event color override:', e);
         }
     }
 
@@ -1735,12 +1950,11 @@
             return;
         }
 
-        // Calendar events aren't edited inline. Admins manage them in the
-        // Calendars panel; for everyone else they're read-only.
+        // Calendar event: open the modal in read-only-ish "calendar event" mode
+        // with a link to the calendar's customize menu and a click-to-apply color
+        // picker for the user's per-event override.
         if (typeof annotation === 'object' && annotation.isCalendarEvent) {
-            if (!annotation.readOnly) {
-                openCalendarManageView(calendars.find(c => c.id === annotation.calendarId));
-            }
+            openCalendarEventView(dateKey, index, annotation);
             return;
         }
 
@@ -1788,6 +2002,57 @@
         modal.style.display = 'flex';
         annotationInput.focus();
         annotationInput.select();
+    }
+
+    // Open the event modal in "calendar event" mode: fields populated and
+    // read-only, color picker applies the user's per-event override on click,
+    // and a link at the top opens the calendar's customize menu.
+    function openCalendarEventView(dateKey, index, annotation) {
+        const [month, day] = dateKey.split('-').map(Number);
+        const cal = calendars.find(c => c.id === annotation.calendarId);
+        editingAnnotation = { dateKey, index };
+        editingCalendarContext = {
+            calendarId: annotation.calendarId,
+            eventId: annotation.calendarEventId,
+            calendar: cal,
+        };
+
+        const startMonth0 = month - 1;
+        const startDay = day;
+        const endMonth0 = annotation.endMonth !== undefined ? annotation.endMonth : startMonth0;
+        const endDay = annotation.endDay !== undefined ? annotation.endDay : startDay;
+
+        startDateInput.value = dateToInputValue(startMonth0, startDay);
+        endDateInput.value = dateToInputValue(endMonth0, endDay);
+        endDateContainer.style.display = 'flex';
+        startDateInput.disabled = true;
+        endDateInput.disabled = true;
+
+        existingAnnotations.innerHTML = '';
+        document.getElementById('also-on-this-day').innerHTML = '';
+
+        annotationInput.value = annotation.title;
+        annotationInput.readOnly = true;
+
+        // Mark the currently-effective color in the picker.
+        const effective = annotation.color; // already resolved in loadCalendarEventsIntoAnnotations
+        document.querySelectorAll('#color-picker .color-option').forEach(opt => {
+            opt.classList.toggle('selected', opt.getAttribute('data-color') === effective);
+        });
+
+        // Calendar-name link → opens the customize menu for this calendar.
+        if (cal && modalCalendarLink && modalCalendarLinkRow) {
+            modalCalendarLink.textContent = cal.name;
+            modalCalendarLinkRow.style.display = 'block';
+            modalCalendarLink.onclick = () => {
+                closeModal();
+                openCustomizeModal(cal);
+            };
+        }
+
+        // Read-only mode: hide save/cancel/delete/visibility toggle.
+        modal.querySelector('.modal-content').classList.add('calendar-event-view');
+        modal.style.display = 'flex';
     }
 
     function createCenterText(year) {
@@ -2629,6 +2894,15 @@
         selectedEndDate = null;
         editingAnnotation = null;
         annotationInput.value = '';
+        // Reset calendar-event mode (so the next personal-event edit is normal).
+        editingCalendarContext = null;
+        if (modalCalendarLinkRow) modalCalendarLinkRow.style.display = 'none';
+        if (modalCalendarLink) modalCalendarLink.onclick = null;
+        const mc = modal.querySelector('.modal-content');
+        if (mc) mc.classList.remove('calendar-event-view');
+        startDateInput.disabled = false;
+        endDateInput.disabled = false;
+        annotationInput.readOnly = false;
         clearRangeHighlight();
         // Also clear list view drag state
         if (typeof isListDragging !== 'undefined') {
@@ -3096,10 +3370,34 @@
         if (loginBtn) loginBtn.addEventListener('click', handleLogin);
         if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
 
-        // Settings event listeners
-        if (settingsBtn) settingsBtn.addEventListener('click', openSettingsModal);
+        // Register the three popovers with the generic system (handles
+        // hover-open, click-toggle, exclusive open, outside-click close).
+        registerPopover({ name: 'calendars', btn: calendarsBtn, el: calendarsPopover, onOpen: () => {
+            renderCalendarsList();
+            // Refresh from server in the background, then re-render if still open.
+            api('/api/calendars').then(list => {
+                calendars = list;
+                if (isPopoverOpen('calendars')) renderCalendarsList();
+            }).catch(() => {});
+        }});
+        registerPopover({ name: 'settings', btn: settingsBtn, el: settingsPopover, onOpen: populateSettingsPopover });
+        registerPopover({ name: 'friends',  btn: friendsBtn,  el: friendsPopover,  onOpen: populateFriendsPopover });
+
+        // Generic outside-click close (any popover); reposition on resize.
+        document.addEventListener('mousedown', (e) => {
+            POPOVERS.forEach(p => {
+                if (!p.el.classList.contains('open')) return;
+                if (p.el.contains(e.target)) return;
+                if (p.btn && p.btn.contains(e.target)) return;
+                closePopover(p.name);
+            });
+        });
+        window.addEventListener('resize', () => {
+            POPOVERS.forEach(p => { if (isPopoverOpen(p.name)) positionPopover(p); });
+        });
+
+        // Settings (birthday) form
         if (settingsSaveBtn) settingsSaveBtn.addEventListener('click', saveSettings);
-        if (settingsCancelBtn) settingsCancelBtn.addEventListener('click', closeSettingsModal);
         if (clearBirthdayBtn) clearBirthdayBtn.addEventListener('click', clearBirthday);
         if (birthdayMonth) {
             birthdayMonth.addEventListener('change', () => {
@@ -3107,42 +3405,28 @@
                 if (month) {
                     const daysInMonth = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
                     birthdayDay.max = daysInMonth[month - 1];
-                    // Clamp current value if needed
                     if (parseInt(birthdayDay.value) > daysInMonth[month - 1]) {
                         birthdayDay.value = daysInMonth[month - 1];
                     }
                 }
             });
         }
-        if (settingsModal) {
-            settingsModal.addEventListener('click', (e) => {
-                if (e.target === settingsModal) closeSettingsModal();
-            });
-        }
 
-        // Friends event listeners
-        if (friendsBtn) friendsBtn.addEventListener('click', openFriendsModal);
-        if (friendsCloseBtn) friendsCloseBtn.addEventListener('click', closeFriendsModal);
+        // Friends form
         if (sendRequestBtn) sendRequestBtn.addEventListener('click', handleSendFriendRequest);
         if (friendEmailInput) {
             friendEmailInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') handleSendFriendRequest();
             });
         }
-        if (friendsModal) {
-            friendsModal.addEventListener('click', (e) => {
-                if (e.target === friendsModal) closeFriendsModal();
-            });
-        }
 
-        // Calendars event listeners
-        if (calendarsBtn) calendarsBtn.addEventListener('click', openCalendarsModal);
-        if (calendarsCloseBtn) calendarsCloseBtn.addEventListener('click', closeCalendarsModal);
-        if (calendarManageClose) calendarManageClose.addEventListener('click', closeCalendarsModal);
+        // Calendar manage modal (admin)
+        if (calendarManageClose) calendarManageClose.addEventListener('click', closeCalendarManageModal);
         if (calendarManageBack) {
+            // "Back" closes the manage modal and re-opens the calendars popover.
             calendarManageBack.addEventListener('click', () => {
-                showCalendarsListView();
-                renderCalendarsList();
+                closeCalendarManageModal();
+                openPopover('calendars');
             });
         }
         if (calendarMetaSave) calendarMetaSave.addEventListener('click', handleSaveCalendarMeta);
@@ -3167,9 +3451,25 @@
                 if (e.key === 'Enter') handleSaveCalendarEvent();
             });
         }
-        if (calendarsModal) {
-            calendarsModal.addEventListener('click', (e) => {
-                if (e.target === calendarsModal) closeCalendarsModal();
+        if (calendarManageModal) {
+            calendarManageModal.addEventListener('click', (e) => {
+                if (e.target === calendarManageModal) closeCalendarManageModal();
+            });
+        }
+
+        // Customize-colors modal listeners
+        if (customizeCloseBtn) customizeCloseBtn.addEventListener('click', closeCustomizeModal);
+        if (customizeCalReset) {
+            customizeCalReset.addEventListener('click', () => applyCalendarColorOverride(null));
+        }
+        if (customizeCalColors) {
+            customizeCalColors.querySelectorAll('.color-option').forEach(opt => {
+                opt.addEventListener('click', () => applyCalendarColorOverride(opt.getAttribute('data-color')));
+            });
+        }
+        if (calendarCustomizeModal) {
+            calendarCustomizeModal.addEventListener('click', (e) => {
+                if (e.target === calendarCustomizeModal) closeCustomizeModal();
             });
         }
 
@@ -3194,12 +3494,23 @@
             if (newEnd) selectedEndDate = newEnd;
         });
 
-        // Color picker event listeners
-        document.querySelectorAll('.color-option').forEach(btn => {
+        // Color picker (event modal only — scoped so it doesn't clobber the
+        // pickers in the manage and customize modals).
+        document.querySelectorAll('#color-picker .color-option').forEach(btn => {
             btn.addEventListener('click', (e) => {
-                document.querySelectorAll('.color-option').forEach(b => b.classList.remove('selected'));
+                const color = e.target.getAttribute('data-color');
+                document.querySelectorAll('#color-picker .color-option').forEach(b => b.classList.remove('selected'));
                 e.target.classList.add('selected');
-                selectedColor = e.target.getAttribute('data-color');
+                if (editingCalendarContext) {
+                    // Calendar event view: apply per-user override immediately.
+                    setEventColorOverrideAPI(
+                        editingCalendarContext.calendarId,
+                        editingCalendarContext.eventId,
+                        color,
+                    );
+                } else {
+                    selectedColor = color;
+                }
             });
         });
 
@@ -3221,14 +3532,14 @@
                 if (modal.style.display === 'flex') {
                     closeModal();
                 }
-                if (settingsModal && settingsModal.style.display === 'flex') {
-                    closeSettingsModal();
+                if (isAnyPopoverOpen()) {
+                    closeAllPopovers();
                 }
-                if (friendsModal && friendsModal.style.display === 'flex') {
-                    closeFriendsModal();
+                if (calendarManageModal && calendarManageModal.style.display === 'flex') {
+                    closeCalendarManageModal();
                 }
-                if (calendarsModal && calendarsModal.style.display === 'flex') {
-                    closeCalendarsModal();
+                if (calendarCustomizeModal && calendarCustomizeModal.style.display === 'flex') {
+                    closeCustomizeModal();
                 }
             }
             if (e.key === 'Enter' && modal.style.display === 'flex' && !e.shiftKey) {
@@ -3806,9 +4117,7 @@
             return;
         }
         if (typeof annotation === 'object' && annotation.isCalendarEvent) {
-            if (!annotation.readOnly) {
-                openCalendarManageView(calendars.find(c => c.id === annotation.calendarId));
-            }
+            openCalendarEventView(dateKey, index, annotation);
             return;
         }
 

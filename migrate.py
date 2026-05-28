@@ -79,6 +79,22 @@ migrations = [
 
     # Link events to a shared calendar (NULL = personal event)
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS calendar_id VARCHAR(36) REFERENCES calendars(id) ON DELETE CASCADE",
+
+    # Per-user calendar color override (NULL = use admin's color)
+    "ALTER TABLE calendar_memberships ADD COLUMN IF NOT EXISTS color_override VARCHAR(7)",
+
+    # Per-user event color overrides
+    """
+    CREATE TABLE IF NOT EXISTS user_event_color_overrides (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        event_id VARCHAR(36) NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+        color VARCHAR(7) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, event_id)
+    )
+    """,
 ]
 
 for sql in migrations:

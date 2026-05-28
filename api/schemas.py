@@ -49,6 +49,8 @@ class EventResponse(BaseModel):
     title: str
     color: Optional[str]
     hidden: bool
+    # Per-user color override for this event (only set for calendar events).
+    my_color: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -110,9 +112,16 @@ class CalendarResponse(BaseModel):
     color: str
     is_admin: bool
     is_visible: bool
+    # Per-user override for this calendar's color (None = use the admin's color).
+    color_override: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+class ColorOverrideUpdate(BaseModel):
+    """Set a per-user color override. Passing color=None clears the override."""
+    color: Optional[str] = Field(None, max_length=7)
 
 
 class CalendarUpdate(BaseModel):

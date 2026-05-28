@@ -126,6 +126,8 @@ class CalendarMembership(Base):
     calendar_id = Column(String(36), ForeignKey("calendars.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     is_visible = Column(Boolean, nullable=False, default=False)  # Whether the user shows this calendar
+    # Per-user override for this calendar's color. NULL = use the admin's color.
+    color_override = Column(String(7), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
     calendar = relationship("Calendar", back_populates="memberships")
@@ -133,6 +135,25 @@ class CalendarMembership(Base):
 
     __table_args__ = (
         UniqueConstraint('calendar_id', 'user_id', name='unique_calendar_membership'),
+    )
+
+
+class UserEventColorOverride(Base):
+    """A user's per-event color override for a calendar event.
+
+    Resolution order at render time: event override > calendar override > admin color.
+    """
+    __tablename__ = "user_event_color_overrides"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    event_id = Column(String(36), ForeignKey("events.id", ondelete="CASCADE"), nullable=False)
+    color = Column(String(7), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'event_id', name='unique_user_event_color'),
     )
 
 

@@ -4,7 +4,7 @@ from sqlalchemy import select
 from typing import List
 
 from .database import get_db
-from .models import User, Calendar, CalendarMembership, Event
+from .models import User, Calendar, CalendarMembership, Event, UserEventColorOverride
 from .schemas import (
     CalendarResponse,
     CalendarUpdate,
@@ -12,6 +12,7 @@ from .schemas import (
     CalendarMemberAdd,
     CalendarMemberResponse,
     CalendarMemberAddResponse,
+    ColorOverrideUpdate,
     EventCreate,
     EventUpdate,
     EventResponse,
@@ -74,6 +75,7 @@ async def list_calendars(
             color=cal.color,
             is_admin=cal.admin_user_id == user.id,
             is_visible=membership.is_visible,
+            color_override=membership.color_override,
         )
         for cal, membership in rows
     ]
@@ -101,6 +103,7 @@ async def update_calendar(
         color=calendar.color,
         is_admin=True,
         is_visible=membership.is_visible if membership else True,
+        color_override=membership.color_override if membership else None,
     )
 
 
@@ -124,6 +127,7 @@ async def set_visibility(
         color=calendar.color,
         is_admin=calendar.admin_user_id == user.id,
         is_visible=membership.is_visible,
+        color_override=membership.color_override,
     )
 
 
@@ -219,6 +223,69 @@ async def remove_member(
     await db.commit()
 
 
+# ---- Per-user color overrides (member-level personalization) ----
+
+@router.patch("/{calendar_id}/color", response_model=CalendarResponse)
+async def set_calendar_color_override(
+    calendar_id: str,
+    data: ColorOverrideUpdate,
+    user: User = Depends(require_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Member: set a personal color override for the entire calendar. color=null clears it."""
+    calendar = await _get_calendar_for_member(db, calendar_id, user)
+    membership = await _get_membership(db, calendar_id, user.id)
+    if not membership:
+        raise HTTPException(status_code=404, detail="Calendar not found")
+    membership.color_override = data.color or None  # treat "" as clear
+    await db.commit()
+    return CalendarResponse(
+        id=calendar.id,
+        name=calendar.name,
+        color=calendar.color,
+        is_admin=calendar.admin_user_id == user.id,
+        is_visible=membership.is_visible,
+        color_override=membership.color_override,
+    )
+
+
+@router.put("/{calendar_id}/events/{event_id}/my-color", status_code=204)
+async def set_event_color_override(
+    calendar_id: str,
+    event_id: str,
+    data: ColorOverrideUpdate,
+    user: User = Depends(require_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Member: set or clear a personal color override for a single calendar event."""
+    await _get_calendar_for_member(db, calendar_id, user)
+    # Verify the event belongs to this calendar.
+    ev = (await db.execute(
+        select(Event).where(Event.id == event_id, Event.calendar_id == calendar_id)
+    )).scalar_one_or_none()
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    existing = (await db.execute(
+        select(UserEventColorOverride).where(
+            UserEventColorOverride.user_id == user.id,
+            UserEventColorOverride.event_id == event_id,
+        )
+    )).scalar_one_or_none()
+
+    if not data.color:
+        # Clear the override (delete row if present)
+        if existing:
+            await db.delete(existing)
+            await db.commit()
+        return
+    if existing:
+        existing.color = data.color
+    else:
+        db.add(UserEventColorOverride(user_id=user.id, event_id=event_id, color=data.color))
+    await db.commit()
+
+
 # ---- Calendar events ----
 
 @router.get("/{calendar_id}/events", response_model=List[EventResponse])
@@ -227,14 +294,30 @@ async def list_calendar_events(
     user: User = Depends(require_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Member: list events on this calendar."""
+    """Member: list events on this calendar, with the current user's per-event color overrides."""
     await _get_calendar_for_member(db, calendar_id, user)
-    result = await db.execute(
-        select(Event)
+    rows = (await db.execute(
+        select(Event, UserEventColorOverride.color)
+        .outerjoin(
+            UserEventColorOverride,
+            (UserEventColorOverride.event_id == Event.id) &
+            (UserEventColorOverride.user_id == user.id),
+        )
         .where(Event.calendar_id == calendar_id)
         .order_by(Event.month, Event.day)
-    )
-    return result.scalars().all()
+    )).all()
+    # Build EventResponse manually so we can attach my_color.
+    return [
+        EventResponse(
+            id=ev.id,
+            month=ev.month, day=ev.day,
+            end_month=ev.end_month, end_day=ev.end_day,
+            title=ev.title, color=ev.color, hidden=ev.hidden,
+            my_color=my_color,
+            created_at=ev.created_at, updated_at=ev.updated_at,
+        )
+        for ev, my_color in rows
+    ]
 
 
 @router.post("/{calendar_id}/events", response_model=EventResponse, status_code=201)

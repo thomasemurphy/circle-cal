@@ -909,6 +909,78 @@ body {
     max-width: 420px;
 }
 
+/* Popover anchored under the calendars-btn (list view) */
+.popover {
+    position: fixed;
+    z-index: 1000;
+    background: var(--bg-primary, #fff);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+    padding: 14px 16px 12px;
+    min-width: 260px;
+    max-width: 340px;
+    /* Hidden by default; toggled with .open. Origin set in JS so the popover
+       grows out of its button. Slower, softer easing — less frantic. */
+    opacity: 0;
+    transform: scale(0.7);
+    transform-origin: top right;
+    pointer-events: none;
+    transition: opacity 0.28s ease-out, transform 0.32s cubic-bezier(0.22, 0.9, 0.32, 1.04);
+}
+
+.popover.open {
+    opacity: 1;
+    transform: scale(1);
+    pointer-events: auto;
+}
+
+/* Little caret pointing up to the button */
+.popover::before {
+    content: '';
+    position: absolute;
+    top: -6px;
+    right: var(--caret-right, 16px);
+    width: 12px;
+    height: 12px;
+    background: var(--bg-primary, #fff);
+    border-top: 1px solid var(--border-color);
+    border-left: 1px solid var(--border-color);
+    transform: rotate(45deg);
+}
+
+.popover h3 {
+    margin: 0 0 4px;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.popover .settings-description {
+    font-size: 12px;
+    margin: 0 0 8px;
+}
+
+.popover .friends-section {
+    margin-bottom: 14px;
+}
+.popover .friends-section:last-child {
+    margin-bottom: 0;
+}
+
+/* Trim the friends list inside the popover (it can be long) */
+.popover .friends-list {
+    max-height: 220px;
+    overflow-y: auto;
+    margin-top: 4px;
+}
+
+.popover-buttons {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 10px;
+}
+
 .calendars-list {
     list-style: none;
     padding: 0;
@@ -1051,6 +1123,106 @@ body {
     font-size: 13px;
     padding: 8px 0;
     list-style: none;
+}
+
+/* Customize-colors modal */
+.customize-color-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.customize-events-list {
+    list-style: none;
+    padding: 0;
+    margin: 8px 0 0;
+    max-height: 260px;
+    overflow-y: auto;
+}
+
+.customize-events-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 14px;
+}
+
+/* Small inline color swatches for per-event customization */
+.swatch-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.swatch-mini {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    padding: 0;
+    background-clip: padding-box;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.swatch-mini:hover {
+    transform: scale(1.15);
+}
+
+.swatch-mini.selected {
+    box-shadow: 0 0 0 2px var(--bg-primary, #fff), 0 0 0 4px #1976d2;
+}
+
+.swatch-reset {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 1px dashed var(--border-color);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 14px;
+    cursor: pointer;
+    padding: 0;
+}
+
+.swatch-reset:hover {
+    border-color: #c62828;
+    color: #c62828;
+}
+
+/* "Colors" link in each calendar row */
+.calendar-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+/* Modal in "calendar event" mode: read-only-ish view with a link to the
+   calendar's customize menu. Hides admin-only chrome and the save flow. */
+.modal-content.calendar-event-view #save-btn,
+.modal-content.calendar-event-view #cancel-btn,
+.modal-content.calendar-event-view #delete-btn,
+.modal-content.calendar-event-view #visibility-toggle {
+    display: none !important;
+}
+.modal-content.calendar-event-view .modal-buttons {
+    display: none;
+}
+
+#modal-calendar-link-row {
+    margin: 6px 0 8px;
+    text-align: left;
+}
+#modal-calendar-link {
+    font-size: 13px;
+    padding: 2px 0;
 }
 
 /* Header layout */
